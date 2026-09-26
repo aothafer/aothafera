@@ -3,15 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'challenge_provider.dart';
+import 'notification_service.dart';
 import 'route_observer.dart';
 import 'welcome_screen.dart';
 import 'theme.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
   );
+  await NotificationService.instance.init();
   runApp(
     ChangeNotifierProvider(
       create: (_) => ChallengeProvider(),

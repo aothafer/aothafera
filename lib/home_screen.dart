@@ -16,11 +16,11 @@ class HomeScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: Text('سجّل تقدمك في "${c.title}"'),
+        title: Text('سجّلي تقدمك في "${c.title}"'),
         content: TextField(
           autofocus: true,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: 'كم غنمت ${c.unit} اليوم ؟'),
+          decoration: InputDecoration(labelText: 'كام ${c.unit} النهاردة؟'),
           onChanged: (value) => input = value,
         ),
         actions: [
@@ -53,7 +53,7 @@ class HomeScreen extends StatelessWidget {
           MaterialPageRoute(builder: (_) => const AddChallengeScreen()),
         ),
         icon: const Icon(Icons.add),
-        label: const Text('تحدٍ جديد'),
+        label: const Text('تحدي جديد'),
       ),
       body: ListView(
         padding: EdgeInsets.zero,
@@ -162,7 +162,7 @@ class _HeaderBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('مرمى الهدف', style: textTheme.headlineMedium),
+                Text('تحدياتي', style: textTheme.headlineMedium),
                 Text(
                   'كل يوم خطوة',
                   style: textTheme.bodyMedium?.copyWith(color: AppColors.muted),
@@ -251,14 +251,14 @@ class _ChallengeCard extends StatelessWidget {
                   ? [
                       _InfoChip(
                         icon: Icons.emoji_events_outlined,
-                        text: 'أنهيت حدّك الأدنى!',
+                        text: 'خلصتي الحد الأدنى!',
                         color: accent,
                       ),
                     ]
                   : [
                       _InfoChip(
                         icon: Icons.schedule,
-                        text: 'يتبقى لديك ${c.daysLeft} يوم',
+                        text: 'باقي ${c.daysLeft} يوم',
                         color: accent,
                       ),
                       _InfoChip(
@@ -279,7 +279,7 @@ class _ChallengeCard extends StatelessWidget {
               ),
               onPressed: onLog,
               icon: const Icon(Icons.add),
-              label: const Text('سجّل تقدمك'),
+              label: const Text('سجّلي تقدم'),
             ),
           ),
         ],
@@ -367,13 +367,45 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 32),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          Text('ابدأ تحدّيك الأول!', style: textTheme.titleLarge),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Stack(
+              children: [
+                Image.asset(
+                  'assets/images/empty_state.jpg',
+                  width: double.infinity,
+                  height: 170,
+                  fit: BoxFit.cover,
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 60,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          AppColors.bg.withValues(alpha: 0),
+                          AppColors.bg.withValues(alpha: 0.55),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text('ابدأي أول تحدي', style: textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-            'فاقصد إلى قِمَمِ الأشياءِ تُدرِكُها\nتَجري الرياحُ كما رَادَتْ لها السفنُ',
+            'حددي هدف وسجّلي تقدمك كل يوم،\nوهتشوفي الطريق قدامك بيتفتح.',
             textAlign: TextAlign.center,
             style: textTheme.bodyMedium?.copyWith(color: AppColors.muted),
           ),
@@ -390,7 +422,7 @@ class _AppDrawer extends StatelessWidget {
   void _comingSoon(BuildContext context) {
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('ميزةٌ ما في الطريق')),
+      const SnackBar(content: Text('هتتفعّل في المرحلة الجاية')),
     );
   }
 

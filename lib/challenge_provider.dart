@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+
 import 'models.dart';
+import 'notification_service.dart';
 
 /// بيشيل قايمة التحديات، وأي تغيير فيها بيبلّغ الشاشات تتحدث تلقائي.
 /// (في مرحلة الحساب هنبدّل الـ List دي بـ Firestore)
@@ -18,7 +22,7 @@ class ChallengeProvider extends ChangeNotifier {
     required DateTime endDate,
     ReminderSettings reminder = const ReminderSettings(),
   }) {
-    _challenges.add(Challenge(
+    final challenge = Challenge(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       title: title,
       unit: unit,
@@ -28,7 +32,11 @@ class ChallengeProvider extends ChangeNotifier {
       endDate: endDate,
       colorIndex: _nextColor++,
       reminder: reminder,
-    ));
+    );
+    _challenges.add(challenge);
+    // جدولة الإشعارات بتحصل في الخلفية من غير ما نستنّاها عشان مش
+    // محتاجين نأخّر إضافة التحدي على شاشة المستخدم.
+    unawaited(NotificationService.instance.scheduleForChallenge(challenge));
     notifyListeners();
   }
 
@@ -39,6 +47,8 @@ class ChallengeProvider extends ChangeNotifier {
   }
 
   void removeChallenge(String challengeId) {
+    final challenge = _challenges.firstWhere((c) => c.id == challengeId);
+    unawaited(NotificationService.instance.cancelForChallenge(challenge));
     _challenges.removeWhere((c) => c.id == challengeId);
     notifyListeners();
   }

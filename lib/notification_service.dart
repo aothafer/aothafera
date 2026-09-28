@@ -71,11 +71,17 @@ class NotificationService {
 
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
-        'challenge_reminders',
-        'تذكيرات التحديات',
-        channelDescription: 'تنبيه يومي بموعد تسجيل تقدمك في تحدي',
-        importance: Importance.high,
-        priority: Priority.high,
+        // تغيير المعرّف ينشئ قناة جديدة على الأجهزة التي أنشأت القناة
+        // القديمة بإعداداتها الافتراضية.
+        'challenge_alarm_reminders_v2',
+        'منبهات التحديات',
+        channelDescription: 'منبه بموعد تسجيل تقدمك في التحدي',
+        importance: Importance.max,
+        priority: Priority.max,
+        category: AndroidNotificationCategory.alarm,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        playSound: true,
+        enableVibration: true,
       ),
     );
 

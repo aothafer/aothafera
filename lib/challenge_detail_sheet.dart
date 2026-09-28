@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'add_challenge_screen.dart';
+import 'challenge_provider.dart';
 import 'models.dart';
 import 'theme.dart';
 
-/// شيت التفاصيل: بيتفتح لما تدوسي على كارت التحدي
+/// شيت التفاصيل: يُفتح عند الضغط على بطاقة التحدي
 void showChallengeDetail(BuildContext context, Challenge c, Color accent) {
   showModalBottomSheet(
     context: context,
@@ -25,6 +28,7 @@ class _DetailSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = challenge;
     final textTheme = Theme.of(context).textTheme;
+    final group = context.watch<ChallengeProvider>().groupById(c.groupId);
 
     Widget row(String label, String value) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
@@ -56,7 +60,40 @@ class _DetailSheet extends StatelessWidget {
                 ),
               ),
             ),
-            Text(c.title, style: textTheme.titleLarge),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c.title, style: textTheme.titleLarge),
+                      if (group != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'ضمن مجموعة: ${group.title}',
+                            style: textTheme.bodySmall
+                                ?.copyWith(color: AppColors.muted),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'تعديل التحدي',
+                  onPressed: () {
+                    Navigator.pop(context); // إغلاق الشيت أولًا
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AddChallengeScreen(editing: c),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(
               '${c.totalDone} / ${c.targetMin} ${c.unit}'

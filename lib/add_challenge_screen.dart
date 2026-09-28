@@ -8,7 +8,10 @@ import 'notification_service.dart';
 import 'theme.dart';
 
 class AddChallengeScreen extends StatefulWidget {
-  const AddChallengeScreen({super.key});
+  /// لو مرَّرت تحديًا هنا، الشاشة تفتح في وضع التعديل بدل الإنشاء.
+  final Challenge? editing;
+
+  const AddChallengeScreen({super.key, this.editing});
 
   @override
   State<AddChallengeScreen> createState() => _AddChallengeScreenState();
@@ -16,24 +19,54 @@ class AddChallengeScreen extends StatefulWidget {
 
 class _AddChallengeScreenState extends State<AddChallengeScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
-  final _unitController = TextEditingController();
-  final _minController = TextEditingController();
-  final _maxController = TextEditingController();
+  late final TextEditingController _titleController;
+  late final TextEditingController _unitController;
+  late final TextEditingController _minController;
+  late final TextEditingController _maxController;
 
-  DateTimeRange _range = DateTimeRange(
-    start: DateTime.now(),
-    end: DateTime.now().add(const Duration(days: 30)),
-  );
+  late DateTimeRange _range;
 
   // إعدادات التنبيه
-  bool _reminderOn = false;
-  bool _sameTimeEveryDay = true;
-  TimeOfDay _defaultTime = const TimeOfDay(hour: 20, minute: 0);
+  late bool _reminderOn;
+  late bool _sameTimeEveryDay;
+  late TimeOfDay _defaultTime;
 
   // الأيام اللي اتخصص لها وقت مختلف عن الوقت الافتراضي (المفتاح: رقم اليوم
   // بداية من 0 من أول يوم في التحدي)
-  final Map<int, TimeOfDay> _perDayTimes = {};
+  late final Map<int, TimeOfDay> _perDayTimes;
+
+  // المجموعة اللي التحدي منضم لها، أو null لتحدٍ منفرد
+  String? _groupId;
+
+  bool get _isEditing => widget.editing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = widget.editing;
+
+    _titleController = TextEditingController(text: c?.title ?? '');
+    _unitController = TextEditingController(text: c?.unit ?? '');
+    _minController = TextEditingController(text: c?.targetMin.toString() ?? '');
+    _maxController = TextEditingController(
+      text: (c != null && c.targetMax > c.targetMin)
+          ? c.targetMax.toString()
+          : '',
+    );
+
+    _range = c == null
+        ? DateTimeRange(
+            start: DateTime.now(),
+            end: DateTime.now().add(const Duration(days: 30)),
+          )
+        : DateTimeRange(start: c.startDate, end: c.endDate);
+
+    _reminderOn = c?.reminder.enabled ?? false;
+    _sameTimeEveryDay = c?.reminder.sameTimeEveryDay ?? true;
+    _defaultTime = c?.reminder.defaultTime ?? const TimeOfDay(hour: 20, minute: 0);
+    _perDayTimes = Map.of(c?.reminder.perDayTimes ?? {});
+    _groupId = c?.groupId;
+  }
 
   @override
   void dispose() {
@@ -54,7 +87,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     if (picked != null) {
       setState(() {
         _range = picked;
-        _perDayTimes.clear(); // المدة اتغيرت، فالتخصيص القديم ملوش معنى
+        _perDayTimes.clear(); // المدة تغيّرت، فالتخصيص القديم لم يعد له معنى
       });
     }
   }
@@ -73,8 +106,8 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     return d.difference(s).inDays;
   }
 
-  /// بيفتح الأجندة، والمستخدم بيختار يوم من ضمن مدة التحدي بس، وبعدها
-  /// بيفتح وقت التنبيه لليوم ده.
+  /// بيفتح الأجندة، والمستخدم يختار يومًا من ضمن مدة التحدي فقط، وبعدها
+  /// يفتح وقت التنبيه لذلك اليوم.
   Future<void> _addCustomDay() async {
     final day = await ReminderDayPicker.show(
       context,
@@ -100,6 +133,38 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
   }
 
   void _removeCustomDay(int index) => setState(() => _perDayTimes.remove(index));
+
+  Future<void> _createGroup() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('مجموعة جديدة'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'اسم المجموعة',
+            hintText: 'مثال: القراءة',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('إنشاء'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    final group = context.read<ChallengeProvider>().addGroup(name);
+    setState(() => _groupId = group.id);
+  }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -127,20 +192,38 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     final max =
         _maxController.text.isEmpty ? min : int.parse(_maxController.text);
 
-    context.read<ChallengeProvider>().addChallenge(
-          title: _titleController.text.trim(),
-          unit: _unitController.text.trim(),
-          targetMin: min,
-          targetMax: max,
-          startDate: _range.start,
-          endDate: _range.end,
-          reminder: ReminderSettings(
-            enabled: _reminderOn,
-            sameTimeEveryDay: _sameTimeEveryDay,
-            defaultTime: _defaultTime,
-            perDayTimes: Map.of(_perDayTimes),
-          ),
-        );
+    final reminder = ReminderSettings(
+      enabled: _reminderOn,
+      sameTimeEveryDay: _sameTimeEveryDay,
+      defaultTime: _defaultTime,
+      perDayTimes: Map.of(_perDayTimes),
+    );
+
+    final provider = context.read<ChallengeProvider>();
+    if (_isEditing) {
+      provider.updateChallenge(
+        widget.editing!.id,
+        title: _titleController.text.trim(),
+        unit: _unitController.text.trim(),
+        targetMin: min,
+        targetMax: max,
+        startDate: _range.start,
+        endDate: _range.end,
+        reminder: reminder,
+        groupId: _groupId,
+      );
+    } else {
+      provider.addChallenge(
+        title: _titleController.text.trim(),
+        unit: _unitController.text.trim(),
+        targetMin: min,
+        targetMax: max,
+        startDate: _range.start,
+        endDate: _range.end,
+        reminder: reminder,
+        groupId: _groupId,
+      );
+    }
     Navigator.pop(context);
   }
 
@@ -153,8 +236,12 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final groups = context.watch<ChallengeProvider>().groups;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('تحدي جديد')),
+      appBar: AppBar(
+        title: Text(_isEditing ? 'تعديل التحدي' : 'تحدٍ جديد'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -167,7 +254,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
                 hintText: 'مثلًا: القراءة، الرياضة، الصلاة...',
               ),
               validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'اكتب اسم التحدي' : null,
+                  (v == null || v.trim().isEmpty) ? 'ضع لتحدّيك اسمًا' : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -211,6 +298,13 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
               label: Text('من ${_fmt(_range.start)} إلى ${_fmt(_range.end)}'),
             ),
             const SizedBox(height: 24),
+            _GroupPicker(
+              groups: groups,
+              selectedId: _groupId,
+              onChanged: (id) => setState(() => _groupId = id),
+              onCreateNew: _createGroup,
+            ),
+            const SizedBox(height: 24),
             _ReminderSection(
               on: _reminderOn,
               onToggle: (v) => setState(() => _reminderOn = v),
@@ -225,9 +319,80 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
               onRemoveCustomDay: _removeCustomDay,
             ),
             const SizedBox(height: 24),
-            FilledButton(onPressed: _save, child: const Text('حفظ التحدي')),
+            FilledButton(
+              onPressed: _save,
+              child: Text(_isEditing ? 'حفظ التعديلات' : 'حفظ التحدي'),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// اختيار المجموعة اللي ينضم إليها التحدي، أو إنشاء مجموعة جديدة.
+class _GroupPicker extends StatelessWidget {
+  final List<Group> groups;
+  final String? selectedId;
+  final ValueChanged<String?> onChanged;
+  final VoidCallback onCreateNew;
+
+  const _GroupPicker({
+    required this.groups,
+    required this.selectedId,
+    required this.onChanged,
+    required this.onCreateNew,
+  });
+
+  static const _newGroupValue = '__new__';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'المجموعة',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'اجمع التحديات المتشابهة في مجموعة واحدة لترى إحصائياتها معًا',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: AppColors.muted),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: selectedId,
+            dropdownColor: AppColors.surface,
+            decoration: const InputDecoration(labelText: 'بلا مجموعة'),
+            items: [
+              const DropdownMenuItem(value: null, child: Text('بلا مجموعة')),
+              ...groups.map(
+                (g) => DropdownMenuItem(value: g.id, child: Text(g.title)),
+              ),
+              const DropdownMenuItem(
+                value: _newGroupValue,
+                child: Text('+ مجموعة جديدة'),
+              ),
+            ],
+            onChanged: (value) {
+              if (value == _newGroupValue) {
+                onCreateNew();
+              } else {
+                onChanged(value);
+              }
+            },
+          ),
+        ],
       ),
     );
   }
@@ -307,7 +472,7 @@ class _ReminderSection extends StatelessWidget {
             if (!sameTimeEveryDay) ...[
               const SizedBox(height: 16),
               Text(
-                'تحتاج وقتًا آخر ؟ خصص وقتك الذي تودّ لأي يوم',
+                'تحتاج وقتًا آخر ليوم معين ؟ خصّص له وقتًا مختلفًا',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 8),

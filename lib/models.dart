@@ -49,18 +49,25 @@ class ReminderSettings {
   }
 }
 
+/// حالة التحدي، تُحسب دائمًا من بياناته، ولا تُخزَّن بشكل منفصل.
+enum ChallengeStatus { active, completed, failed }
+
 /// التحدي نفسه. كل الأرقام (المتبقي، النسبة...) بتتحسب من السجلات،
 /// مش متخزنة، عشان تفضل دايمًا مظبوطة.
 class Challenge {
   final String id;
-  final String title;
-  final String unit; // صفحة، صلاة، دقيقة...
-  final int targetMin;
-  final int targetMax;
-  final DateTime startDate;
-  final DateTime endDate;
+  String title;
+  String unit; // صفحة، صلاة، دقيقة...
+  int targetMin;
+  int targetMax;
+  DateTime startDate;
+  DateTime endDate;
   final int colorIndex; // بيحدد لون التحدي من لوحة الألوان
-  final ReminderSettings reminder;
+  ReminderSettings reminder;
+
+  /// معرّف المجموعة اللي التحدي منضم لها، أو null لو تحدٍ منفرد
+  String? groupId;
+
   final List<LogEntry> logs = [];
 
   Challenge({
@@ -73,6 +80,7 @@ class Challenge {
     required this.endDate,
     required this.colorIndex,
     this.reminder = const ReminderSettings(),
+    this.groupId,
   });
 
   int get totalDone => logs.fold(0, (sum, log) => sum + log.amount);
@@ -113,4 +121,21 @@ class Challenge {
   /// متوسط اللي بتسجليه يوميًا من بداية التحدي لحد دلوقتي
   double get averagePerDay =>
       daysElapsed == 0 ? 0.0 : totalDone / daysElapsed;
+
+  /// الحالة: مكتمل لو وصل للحد الأدنى، فشل لو خلصت مدته من غير ما يوصل،
+  /// وإلا فهو لا يزال نشطًا.
+  ChallengeStatus get status {
+    if (remaining == 0) return ChallengeStatus.completed;
+    if (daysLeft == 0) return ChallengeStatus.failed;
+    return ChallengeStatus.active;
+  }
+}
+
+/// مجموعة تضم عدة تحديات تخدم هدفًا واحدًا (مثال: القراءة)، ولها
+/// إحصائيات مجمّعة من كل التحديات المنضمة إليها.
+class Group {
+  final String id;
+  String title;
+
+  Group({required this.id, required this.title});
 }

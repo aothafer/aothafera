@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import 'add_challenge_screen.dart';
 import 'challenge_detail_sheet.dart';
 import 'challenge_provider.dart';
+import 'completed_challenges_screen.dart';
 import 'models.dart';
+import 'statistics_screen.dart';
 import 'theme.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -16,11 +18,11 @@ class HomeScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: Text('سجّلي تقدمك في "${c.title}"'),
+        title: Text('سجّل تقدمك في "${c.title}"'),
         content: TextField(
           autofocus: true,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: 'كام ${c.unit} النهاردة؟'),
+          decoration: InputDecoration(labelText: 'ماذا غنمت من ${c.unit} اليوم؟'),
           onChanged: (value) => input = value,
         ),
         actions: [
@@ -43,7 +45,7 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final challenges = context.watch<ChallengeProvider>().challenges;
+    final challenges = context.watch<ChallengeProvider>().visibleChallenges;
 
     return Scaffold(
       drawer: const _AppDrawer(),
@@ -53,7 +55,7 @@ class HomeScreen extends StatelessWidget {
           MaterialPageRoute(builder: (_) => const AddChallengeScreen()),
         ),
         icon: const Icon(Icons.add),
-        label: const Text('تحدي جديد'),
+        label: const Text('تحدٍ جديد'),
       ),
       body: ListView(
         padding: EdgeInsets.zero,
@@ -82,7 +84,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-/// الهيدر: اللوحة مع تلاشي ناعم في أولها وآخرها عشان تذوب في الخلفية
+/// الهيدر: اللوحة مع تلاشٍ ناعم في أولها وآخرها لتذوب في الخلفية
 class _HeaderBanner extends StatelessWidget {
   const _HeaderBanner();
 
@@ -136,7 +138,7 @@ class _HeaderBanner extends StatelessWidget {
               ),
             ),
           ),
-          // زرار الرئيسية: بيرجعك لشاشة الترحيب
+          // زر الرئيسية: يعيدك إلى شاشة الترحيب
           Positioned(
             top: MediaQuery.of(context).padding.top + 4,
             left: 8,
@@ -147,7 +149,7 @@ class _HeaderBanner extends StatelessWidget {
                   Navigator.of(context).popUntil((route) => route.isFirst),
             ),
           ),
-          // زرار التلات شرط: بيفتح القايمة الجانبية
+          // زر القائمة الجانبية
           Positioned(
             top: MediaQuery.of(context).padding.top + 4,
             right: 8,
@@ -191,10 +193,10 @@ class _ChallengeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = challenge;
     final textTheme = Theme.of(context).textTheme;
-    final done = c.remaining == 0;
+    final failed = c.status == ChallengeStatus.failed;
     final own = AppColors.challengeColors[
         c.colorIndex % AppColors.challengeColors.length];
-    final accent = done ? AppColors.tealLight : own;
+    final accent = failed ? AppColors.rose : own;
 
     return Material(
       color: Colors.transparent,
@@ -202,95 +204,97 @@ class _ChallengeCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         onTap: () => showChallengeDetail(context, c, accent),
         child: Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: accent.withValues(alpha: 0.30)),
-      ),
-      child: Column(
-        children: [
-          Row(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: accent.withValues(alpha: 0.30)),
+          ),
+          child: Column(
             children: [
-              _ProgressRing(progress: c.progress, color: accent),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(c.title, style: textTheme.titleLarge),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${c.totalDone} / ${c.targetMin} ${c.unit}',
-                      style: textTheme.titleMedium?.copyWith(color: accent),
+              Row(
+                children: [
+                  _ProgressRing(progress: c.progress, color: accent),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(c.title, style: textTheme.titleLarge),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${c.totalDone} / ${c.targetMin} ${c.unit}',
+                          style: textTheme.titleMedium?.copyWith(color: accent),
+                        ),
+                        if (c.targetMax > c.targetMin)
+                          Text(
+                            'الحد الأقصى ${c.targetMax}',
+                            style: textTheme.bodySmall
+                                ?.copyWith(color: AppColors.muted),
+                          ),
+                      ],
                     ),
-                    if (c.targetMax > c.targetMin)
-                      Text(
-                        'الحد الأقصى ${c.targetMax}',
-                        style: textTheme.bodySmall
-                            ?.copyWith(color: AppColors.muted),
-                      ),
-                  ],
+                  ),
+                  const Icon(Icons.chevron_left,
+                      color: AppColors.muted, size: 18),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline,
+                        color: AppColors.muted),
+                    onPressed: onDelete,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: failed
+                      ? [
+                          _InfoChip(
+                            icon: Icons.flag_outlined,
+                            text: 'انتهت المدة دون بلوغ الحد الأدنى',
+                            color: accent,
+                          ),
+                        ]
+                      : [
+                          _InfoChip(
+                            icon: Icons.schedule,
+                            text: 'المتبقي ${c.daysLeft} يوم',
+                            color: accent,
+                          ),
+                          _InfoChip(
+                            icon: Icons.trending_up,
+                            text: '${c.neededPerDay} ${c.unit} يوميًا',
+                            color: accent,
+                          ),
+                        ],
                 ),
               ),
-              Icon(Icons.chevron_left, color: AppColors.muted, size: 18),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: AppColors.muted),
-                onPressed: onDelete,
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: AppColors.bg,
+                  ),
+                  onPressed: onLog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('سجّل تقدمك'),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: done
-                  ? [
-                      _InfoChip(
-                        icon: Icons.emoji_events_outlined,
-                        text: 'خلصتي الحد الأدنى!',
-                        color: accent,
-                      ),
-                    ]
-                  : [
-                      _InfoChip(
-                        icon: Icons.schedule,
-                        text: 'باقي ${c.daysLeft} يوم',
-                        color: accent,
-                      ),
-                      _InfoChip(
-                        icon: Icons.trending_up,
-                        text: '${c.neededPerDay} ${c.unit} يوميًا',
-                        color: accent,
-                      ),
-                    ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: accent,
-                foregroundColor: AppColors.bg,
-              ),
-              onPressed: onLog,
-              icon: const Icon(Icons.add),
-              label: const Text('سجّلي تقدم'),
-            ),
-          ),
-        ],
-      ),
         ),
       ),
     );
   }
 }
 
-/// دايرة التقدم، بتتحرك بشكل ناعم لما الرقم يتغير
+/// حلقة التقدم، تتحرك بسلاسة عند تغيّر القيمة
 class _ProgressRing extends StatelessWidget {
   final double progress;
   final Color color;
@@ -367,45 +371,13 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 32),
       child: Column(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(22),
-            child: Stack(
-              children: [
-                Image.asset(
-                  'assets/images/empty_state.jpg',
-                  width: double.infinity,
-                  height: 170,
-                  fit: BoxFit.cover,
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 60,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          AppColors.bg.withValues(alpha: 0),
-                          AppColors.bg.withValues(alpha: 0.55),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text('ابدأي أول تحدي', style: textTheme.titleLarge),
+          Text('ابدأ تحدّيك الأول', style: textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-            'حددي هدف وسجّلي تقدمك كل يوم،\nوهتشوفي الطريق قدامك بيتفتح.',
+            'حدّد هدفًا وسجّل تقدمك يوميًا،\nوسترى الطريق أمامك يتّسع.',
             textAlign: TextAlign.center,
             style: textTheme.bodyMedium?.copyWith(color: AppColors.muted),
           ),
@@ -415,25 +387,36 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-/// القايمة الجانبية. الخيارات لسه مش شغالة، هتتفعل في المراحل الجاية.
+/// القائمة الجانبية
 class _AppDrawer extends StatelessWidget {
   const _AppDrawer();
 
   void _comingSoon(BuildContext context) {
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('هتتفعّل في المرحلة الجاية')),
+      const SnackBar(content: Text('سيُتاح هذا في مرحلة قادمة')),
     );
+  }
+
+  void _openScreen(BuildContext context, Widget screen) {
+    Navigator.pop(context);
+    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    Widget item(IconData icon, String label, {Color? color}) => ListTile(
+    Widget item(
+      IconData icon,
+      String label, {
+      Color? color,
+      VoidCallback? onTap,
+    }) =>
+        ListTile(
           leading: Icon(icon, color: color ?? AppColors.cream),
           title: Text(label, style: TextStyle(color: color)),
-          onTap: () => _comingSoon(context),
+          onTap: onTap ?? () => _comingSoon(context),
         );
 
     return Drawer(
@@ -448,8 +431,17 @@ class _AppDrawer extends StatelessWidget {
             ),
             const Divider(),
             item(Icons.person_outline, 'حسابي'),
-            item(Icons.bar_chart, 'إحصائياتي'),
-            item(Icons.notifications_none, 'إعدادات الإشعارات'),
+            item(
+              Icons.bar_chart,
+              'إحصائياتي',
+              onTap: () => _openScreen(context, const StatisticsScreen()),
+            ),
+            item(
+              Icons.emoji_events_outlined,
+              'التحديات المُنجزة',
+              onTap: () =>
+                  _openScreen(context, const CompletedChallengesScreen()),
+            ),
             const Spacer(),
             const Divider(),
             item(Icons.logout, 'تسجيل الخروج'),

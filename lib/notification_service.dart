@@ -31,14 +31,22 @@ class NotificationService {
     const settings = InitializationSettings(android: androidSettings);
     await _plugin.initialize(settings);
 
+    _initialized = true;
+  }
+
+  /// يطلب الأذونات عند تفعيل المستخدم للتذكير، بدل إظهار طلب إذن مباغت
+  /// بمجرد فتح التطبيق. الدقة مطلوبة لموعد التنبيه المحدد.
+  Future<bool> requestReminderPermissions() async {
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    // إذن ظهور الإشعارات نفسه (لازم على أندرويد 13 فأعلى)
-    await android?.requestNotificationsPermission();
-    // إذن التنبيهات الدقيقة في وقتها بالظبط (لازم على أندرويد 12 فأعلى)
-    await android?.requestExactAlarmsPermission();
+    if (android == null) return true;
 
-    _initialized = true;
+    final notificationsAllowed =
+        await android.requestNotificationsPermission() ?? true;
+    if (!notificationsAllowed) return false;
+
+    final exactAlarmsAllowed = await android.requestExactAlarmsPermission();
+    return exactAlarmsAllowed ?? true;
   }
 
   // رقم إشعار فريد لكل يوم من كل تحدي، مبني من هوية التحدي ورقم اليوم

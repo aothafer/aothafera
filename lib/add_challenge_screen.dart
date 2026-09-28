@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'challenge_provider.dart';
 import 'models.dart';
 import 'reminder_day_picker.dart';
+import 'notification_service.dart';
 import 'theme.dart';
 
 class AddChallengeScreen extends StatefulWidget {
@@ -100,8 +101,27 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
 
   void _removeCustomDay(int index) => setState(() => _perDayTimes.remove(index));
 
-  void _save() {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_reminderOn) {
+      final allowed =
+          await NotificationService.instance.requestReminderPermissions();
+      if (!allowed) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'فعّلي إشعارات التطبيق والمنبهات الدقيقة من إعدادات الجهاز، ثم جرّبي الحفظ مرة أخرى.',
+              ),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
 
     final min = int.parse(_minController.text);
     final max =

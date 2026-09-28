@@ -1,9 +1,20 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'models.dart';
+
+class ReminderPermissionStatus {
+  final bool notificationsAllowed;
+  final bool exactAlarmsAllowed;
+
+  const ReminderPermissionStatus({
+    required this.notificationsAllowed,
+    required this.exactAlarmsAllowed,
+  });
+}
 
 /// المسؤول عن جدولة/إلغاء تنبيهات التحديات كإشعارات حقيقية من نظام
 /// التشغيل، مستقلة تمامًا عن كون التطبيق فاتح أو مقفول.
@@ -12,6 +23,9 @@ class NotificationService {
   static final NotificationService instance = NotificationService._();
 
   final _plugin = FlutterLocalNotificationsPlugin();
+  static const _settingsChannel = MethodChannel(
+    'com.example.challenge_tracker/notification_settings',
+  );
   bool _initialized = false;
 
   Future<void> init() async {
@@ -26,8 +40,9 @@ class NotificationService {
       // نحسب وقت غلط.
     }
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const settings = InitializationSettings(android: androidSettings);
     await _plugin.initialize(settings);
 
@@ -36,17 +51,72 @@ class NotificationService {
 
   /// يطلب الأذونات عند تفعيل المستخدم للتذكير، بدل إظهار طلب إذن مباغت
   /// بمجرد فتح التطبيق. الدقة مطلوبة لموعد التنبيه المحدد.
-  Future<bool> requestReminderPermissions() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (android == null) return true;
+  Future<ReminderPermissionStatus> requestReminderPermissions() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (android == null) {
+      return const ReminderPermissionStatus(
+        notificationsAllowed: true,
+        exactAlarmsAllowed: true,
+      );
+    }
 
     final notificationsAllowed =
         await android.requestNotificationsPermission() ?? true;
-    if (!notificationsAllowed) return false;
+    if (!notificationsAllowed) {
+      return const ReminderPermissionStatus(
+        notificationsAllowed: false,
+        exactAlarmsAllowed: false,
+      );
+    }
 
-    final exactAlarmsAllowed = await android.requestExactAlarmsPermission();
-    return exactAlarmsAllowed ?? true;
+    var exactAlarmsAllowed =
+        await android.canScheduleExactNotifications() ?? true;
+    if (!exactAlarmsAllowed) {
+      await android.requestExactAlarmsPermission();
+      exactAlarmsAllowed =
+          await android.canScheduleExactNotifications() ?? false;
+    }
+
+    return ReminderPermissionStatus(
+      notificationsAllowed: true,
+      exactAlarmsAllowed: exactAlarmsAllowed,
+    );
+  }
+
+  Future<ReminderPermissionStatus> checkReminderPermissions() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (android == null) {
+      return const ReminderPermissionStatus(
+        notificationsAllowed: true,
+        exactAlarmsAllowed: true,
+      );
+    }
+
+    return ReminderPermissionStatus(
+      notificationsAllowed: await android.areNotificationsEnabled() ?? true,
+      exactAlarmsAllowed: await android.canScheduleExactNotifications() ?? true,
+    );
+  }
+
+  Future<void> openNotificationSettings() =>
+      _settingsChannel.invokeMethod<void>('openNotificationSettings');
+
+  Future<void> openExactAlarmSettings() =>
+      _settingsChannel.invokeMethod<void>('openExactAlarmSettings');
+
+  Future<void> showTestNotification() async {
+    await _plugin.show(
+      2147483646,
+      'اختبار تنبيه التحديات',
+      'الإشعارات تعمل على هذا الجهاز.',
+      _reminderNotificationDetails,
+    );
   }
 
   // رقم إشعار فريد لكل يوم من كل تحدي، مبني من هوية التحدي ورقم اليوم
@@ -69,21 +139,14 @@ class NotificationService {
     await cancelForChallenge(c);
     if (!c.reminder.enabled) return;
 
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        // تغيير المعرّف ينشئ قناة جديدة على الأجهزة التي أنشأت القناة
-        // القديمة بإعداداتها الافتراضية.
-        'challenge_alarm_reminders_v2',
-        'منبهات التحديات',
-        channelDescription: 'منبه بموعد تسجيل تقدمك في التحدي',
-        importance: Importance.max,
-        priority: Priority.max,
-        category: AndroidNotificationCategory.alarm,
-        audioAttributesUsage: AudioAttributesUsage.alarm,
-        playSound: true,
-        enableVibration: true,
-      ),
-    );
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    final exactAlarmsAllowed =
+        await android?.canScheduleExactNotifications() ?? true;
+
+    final details = _reminderNotificationDetails;
 
     final now = tz.TZDateTime.now(tz.local);
 
@@ -108,10 +171,29 @@ class NotificationService {
         'سجّل تقدمك في ${c.unit} اليوم',
         scheduled,
         details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: exactAlarmsAllowed
+            ? AndroidScheduleMode.exactAllowWhileIdle
+            : AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
     }
   }
+
+  NotificationDetails get _reminderNotificationDetails =>
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          // تغيير المعرّف ينشئ قناة جديدة على الأجهزة التي أنشأت القناة
+          // القديمة بإعداداتها الافتراضية.
+          'challenge_alarm_reminders_v2',
+          'منبهات التحديات',
+          channelDescription: 'منبه بموعد تسجيل تقدمك في التحدي',
+          importance: Importance.max,
+          priority: Priority.max,
+          category: AndroidNotificationCategory.alarm,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
+          playSound: true,
+          enableVibration: true,
+        ),
+      );
 }

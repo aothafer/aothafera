@@ -63,7 +63,8 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
 
     _reminderOn = c?.reminder.enabled ?? false;
     _sameTimeEveryDay = c?.reminder.sameTimeEveryDay ?? true;
-    _defaultTime = c?.reminder.defaultTime ?? const TimeOfDay(hour: 20, minute: 0);
+    _defaultTime =
+        c?.reminder.defaultTime ?? const TimeOfDay(hour: 20, minute: 0);
     _perDayTimes = Map.of(c?.reminder.perDayTimes ?? {});
     _groupId = c?.groupId;
   }
@@ -95,8 +96,10 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
   String _fmt(DateTime d) => '${d.day}/${d.month}/${d.year}';
 
   Future<void> _pickDefaultTime() async {
-    final picked =
-        await showTimePicker(context: context, initialTime: _defaultTime);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _defaultTime,
+    );
     if (picked != null) setState(() => _defaultTime = picked);
   }
 
@@ -132,7 +135,85 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     if (picked != null) setState(() => _perDayTimes[index] = picked);
   }
 
-  void _removeCustomDay(int index) => setState(() => _perDayTimes.remove(index));
+  void _removeCustomDay(int index) =>
+      setState(() => _perDayTimes.remove(index));
+
+  Future<void> _toggleReminder(bool enabled) async {
+    if (!enabled) {
+      setState(() => _reminderOn = false);
+      return;
+    }
+
+    final permissions = await NotificationService.instance
+        .requestReminderPermissions();
+    if (!mounted) return;
+
+    if (!permissions.notificationsAllowed) {
+      setState(() => _reminderOn = false);
+      await _showNotificationSettingsPrompt();
+      return;
+    }
+
+    setState(() => _reminderOn = true);
+    if (!permissions.exactAlarmsAllowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'التذكير سيصل بوقت تقريبي. فعّلي «المنبهات والتذكيرات» لموعد دقيق.',
+          ),
+          duration: Duration(seconds: 6),
+          action: SnackBarAction(
+            label: 'الإعدادات',
+            onPressed: () =>
+                NotificationService.instance.openExactAlarmSettings(),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showNotificationSettingsPrompt() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('إشعارات التطبيق متوقفة'),
+        content: const Text(
+          'اسمحي للتطبيق بإرسال الإشعارات من إعدادات الجهاز، ثم فعّلي التذكير مرة أخرى.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('لاحقًا'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              NotificationService.instance.openNotificationSettings();
+            },
+            child: const Text('فتح إعدادات الإشعارات'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _testNotification() async {
+    final permissions = await NotificationService.instance
+        .checkReminderPermissions();
+    if (!permissions.notificationsAllowed) {
+      if (mounted) await _showNotificationSettingsPrompt();
+      return;
+    }
+
+    await NotificationService.instance.showTestNotification();
+    if (!mounted) return;
+
+    final message = permissions.exactAlarmsAllowed
+        ? 'لو ظهر الإشعار، فصلاحية الإشعارات تعمل. جرّبي بعدها موعد التحدي.'
+        : 'الإشعار الفوري يعمل؛ مواعيد التحديات ستصل بوقت تقريبي حتى تفعيل المنبهات الدقيقة.';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
 
   Future<void> _createGroup() async {
     final controller = TextEditingController();
@@ -170,27 +251,19 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     if (_reminderOn) {
-      final allowed =
-          await NotificationService.instance.requestReminderPermissions();
-      if (!allowed) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'فعّلي إشعارات التطبيق والمنبهات الدقيقة من إعدادات الجهاز، ثم جرّبي الحفظ مرة أخرى.',
-              ),
-              duration: Duration(seconds: 5),
-            ),
-          );
-        }
+      final permissions = await NotificationService.instance
+          .checkReminderPermissions();
+      if (!permissions.notificationsAllowed) {
+        if (mounted) await _showNotificationSettingsPrompt();
         return;
       }
     }
     if (!mounted) return;
 
     final min = int.parse(_minController.text);
-    final max =
-        _maxController.text.isEmpty ? min : int.parse(_maxController.text);
+    final max = _maxController.text.isEmpty
+        ? min
+        : int.parse(_maxController.text);
 
     final reminder = ReminderSettings(
       enabled: _reminderOn,
@@ -239,9 +312,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     final groups = context.watch<ChallengeProvider>().groups;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEditing ? 'تعديل التحدي' : 'تحدٍ جديد'),
-      ),
+      appBar: AppBar(title: Text(_isEditing ? 'تعديل التحدي' : 'تحدٍ جديد')),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -270,7 +341,9 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
             TextFormField(
               controller: _minController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'الهدف (الحد الأدنى)'),
+              decoration: const InputDecoration(
+                labelText: 'الهدف (الحد الأدنى)',
+              ),
               validator: _requiredNumber,
             ),
             const SizedBox(height: 16),
@@ -307,7 +380,8 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
             const SizedBox(height: 24),
             _ReminderSection(
               on: _reminderOn,
-              onToggle: (v) => setState(() => _reminderOn = v),
+              onToggle: _toggleReminder,
+              onTestNotification: _testNotification,
               sameTimeEveryDay: _sameTimeEveryDay,
               onSameTimeToggle: (v) => setState(() => _sameTimeEveryDay = v),
               defaultTime: _defaultTime,
@@ -357,21 +431,16 @@ class _GroupPicker extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'المجموعة',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('المجموعة', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
           Text(
             'اجمع التحديات المتشابهة في مجموعة واحدة لترى إحصائياتها معًا',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
+            style: Theme.of(context).textTheme.bodySmall
                 ?.copyWith(color: AppColors.muted),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: selectedId,
+            initialValue: selectedId,
             dropdownColor: AppColors.surface,
             decoration: const InputDecoration(labelText: 'بلا مجموعة'),
             items: [
@@ -401,6 +470,7 @@ class _GroupPicker extends StatelessWidget {
 class _ReminderSection extends StatelessWidget {
   final bool on;
   final ValueChanged<bool> onToggle;
+  final VoidCallback onTestNotification;
   final bool sameTimeEveryDay;
   final ValueChanged<bool> onSameTimeToggle;
   final TimeOfDay defaultTime;
@@ -414,6 +484,7 @@ class _ReminderSection extends StatelessWidget {
   const _ReminderSection({
     required this.on,
     required this.onToggle,
+    required this.onTestNotification,
     required this.sameTimeEveryDay,
     required this.onSameTimeToggle,
     required this.defaultTime,
@@ -466,8 +537,14 @@ class _ReminderSection extends StatelessWidget {
                 sameTimeEveryDay
                     ? 'وقت التنبيه: ${_fmtTime(context, defaultTime)}'
                     : 'الوقت الافتراضي لباقي الأيام: '
-                        '${_fmtTime(context, defaultTime)}',
+                          '${_fmtTime(context, defaultTime)}',
               ),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: onTestNotification,
+              icon: const Icon(Icons.notifications_active_outlined),
+              label: const Text('إرسال إشعار تجريبي الآن'),
             ),
             if (!sameTimeEveryDay) ...[
               const SizedBox(height: 16),
@@ -490,10 +567,13 @@ class _ReminderSection extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         border: Border.all(
-                            color: AppColors.muted.withValues(alpha: 0.3)),
+                          color: AppColors.muted.withValues(alpha: 0.3),
+                        ),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Row(

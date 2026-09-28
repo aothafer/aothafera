@@ -105,7 +105,7 @@ class NotificationService {
       await _plugin.zonedSchedule(
         _idFor(c.id, day),
         'وقت "${c.title}"',
-        'سجّل تقدمك في ${c.unit} النهاردة',
+        'سجّل تقدمك في ${c.unit} اليوم',
         scheduled,
         details,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,

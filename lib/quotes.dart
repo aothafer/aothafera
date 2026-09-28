@@ -1,13 +1,16 @@
-/// اقتباس واحد: النص، والكاتب، والمصدر (اسم الكتاب أو السورة أو الديوان)
+/// اقتباس واحد: النص، والكاتب (اختياري)، والمصدر (اختياري)
 class Quote {
   final String text;
-  final String author;
+  final String? author;
   final String? source;
 
-  const Quote({required this.text, required this.author, this.source});
+  const Quote({required this.text, this.author, this.source});
 
-  String get attribution =>
-      source == null ? '— $author' : '— $author، $source';
+  /// نص المصدر. فارغ لو مفيش كاتب، فالشاشة تقدر تخفي السطر بالكامل.
+  String get attribution {
+    if (author == null) return '';
+    return source == null ? '— $author' : '— $author، $source';
+  }
 }
 
 /// اقتباساتك. علامات التنصيص بتتحط تلقائي حوالين كل اقتباس في الشاشة،
@@ -16,12 +19,10 @@ const kQuotes = [
   Quote(
     text: 'لا تحزن.. فحتى السيف قبل الهَند يُصهرُ\nوحتى الدّق يبدا لمّا '
         'تجمّدِ\nوكم من إنسِ بُترت أطرافه\nفنبتت له مئات الأمجدِ..',
-    author: 'من كتاباتي',
   ),
   Quote(
     text: 'حُشاشةٌ كانت تُلم من عدمٍ\nحتى لكادوا من بعدها يعملوا\nفالوهم '
         'يحيي ويميتُ تارةَ\nوبه تزل قدمٌ أو تعلو..',
-    author: 'من كتاباتي',
   ),
   Quote(
     text: 'أستطيع أن أكون أنا ذاتي؛ لأنّني لستُ وحيداً، ولكني بمفردي '

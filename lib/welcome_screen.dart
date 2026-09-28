@@ -69,6 +69,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     final shadow = [
       Shadow(color: Colors.black.withValues(alpha: 0.7), blurRadius: 12),
     ];
+    final hasAttribution = _quote.author != null;
     return Column(
       children: [
         Text(
@@ -76,15 +77,17 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           textAlign: TextAlign.center,
           style: quoteTextStyle(size: 21).copyWith(shadows: shadow),
         ),
-        const SizedBox(height: 10),
-        Text(
-          _quote.attribution,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.cream.withValues(alpha: 0.75),
-                shadows: shadow,
-              ),
-        ),
+        if (hasAttribution) ...[
+          const SizedBox(height: 10),
+          Text(
+            _quote.attribution,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.cream.withValues(alpha: 0.75),
+                  shadows: shadow,
+                ),
+          ),
+        ],
       ],
     );
   }

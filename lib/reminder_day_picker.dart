@@ -87,7 +87,7 @@ class _ReminderDayPickerState extends State<ReminderDayPicker> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('عفوًا، الأيام خارج التحدي غير متاح وضع الإشعارات بها'),
+        content: Text('عفوًا، لا يمكن ضبط تنبيه لأيام خارج مدة التحدي'),
       ),
     );
   }
@@ -135,7 +135,7 @@ class _ReminderDayPickerState extends State<ReminderDayPicker> {
             Text('اختر يوم التنبيه', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
-              'الأيام الباهتة برة مدة التحدي، مش هتقدر تحط تنبيه فيها',
+              'الأيام الباهتة تقع خارج مدة التحدي، ولا يمكن ضبط تنبيه لها',
               textAlign: TextAlign.center,
               style: Theme.of(context)
                   .textTheme

@@ -215,6 +215,27 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _scheduleTestNotification() async {
+    final permissions = await NotificationService.instance
+        .checkReminderPermissions();
+    if (!permissions.notificationsAllowed) {
+      if (mounted) await _showNotificationSettingsPrompt();
+      return;
+    }
+
+    final result = await NotificationService.instance
+        .scheduleTestNotificationInOneMinute();
+    if (!mounted) return;
+
+    final message = result.error != null
+        ? 'فشلت جدولة الاختبار: ${result.error}'
+        : result.exact
+        ? 'اتجدول اختبار بعد دقيقة بموعد دقيق. سيظهر حتى لو خرجتِ من التطبيق.'
+        : 'اتجدول اختبار بعد دقيقة بوقت تقريبي؛ قد يتأخر بسبب إعدادات أندرويد.';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _createGroup() async {
     final controller = TextEditingController();
     final name = await showDialog<String>(
@@ -273,8 +294,9 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     );
 
     final provider = context.read<ChallengeProvider>();
+    late final ReminderScheduleResult scheduleResult;
     if (_isEditing) {
-      provider.updateChallenge(
+      scheduleResult = await provider.updateChallenge(
         widget.editing!.id,
         title: _titleController.text.trim(),
         unit: _unitController.text.trim(),
@@ -286,7 +308,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
         groupId: _groupId,
       );
     } else {
-      provider.addChallenge(
+      scheduleResult = await provider.addChallenge(
         title: _titleController.text.trim(),
         unit: _unitController.text.trim(),
         targetMin: min,
@@ -297,7 +319,25 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
         groupId: _groupId,
       );
     }
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
+    if (_reminderOn) {
+      final next = scheduleResult.nextScheduledAt;
+      final nextTime = next == null
+          ? ''
+          : ' أول موعد: ${next.day}/${next.month}، '
+                '${next.hour.toString().padLeft(2, '0')}:${next.minute.toString().padLeft(2, '0')}.';
+      final message = scheduleResult.error != null
+          ? 'تعذر جدولة التنبيه: ${scheduleResult.error}'
+          : scheduleResult.scheduledCount == 0
+          ? 'لم يُجدول أي موعد مستقبلي. راجعي تاريخ ووقت التحدي.'
+          : 'اتجدول ${scheduleResult.scheduledCount} تنبيه'
+                '${scheduleResult.exact ? ' بموعد دقيق.' : ' بوقت تقريبي.'}$nextTime';
+      messenger.showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 8)),
+      );
+    }
   }
 
   String? _requiredNumber(String? value) {
@@ -382,6 +422,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
               on: _reminderOn,
               onToggle: _toggleReminder,
               onTestNotification: _testNotification,
+              onScheduleTestNotification: _scheduleTestNotification,
               sameTimeEveryDay: _sameTimeEveryDay,
               onSameTimeToggle: (v) => setState(() => _sameTimeEveryDay = v),
               defaultTime: _defaultTime,
@@ -471,6 +512,7 @@ class _ReminderSection extends StatelessWidget {
   final bool on;
   final ValueChanged<bool> onToggle;
   final VoidCallback onTestNotification;
+  final VoidCallback onScheduleTestNotification;
   final bool sameTimeEveryDay;
   final ValueChanged<bool> onSameTimeToggle;
   final TimeOfDay defaultTime;
@@ -485,6 +527,7 @@ class _ReminderSection extends StatelessWidget {
     required this.on,
     required this.onToggle,
     required this.onTestNotification,
+    required this.onScheduleTestNotification,
     required this.sameTimeEveryDay,
     required this.onSameTimeToggle,
     required this.defaultTime,
@@ -545,6 +588,11 @@ class _ReminderSection extends StatelessWidget {
               onPressed: onTestNotification,
               icon: const Icon(Icons.notifications_active_outlined),
               label: const Text('إرسال إشعار تجريبي الآن'),
+            ),
+            TextButton.icon(
+              onPressed: onScheduleTestNotification,
+              icon: const Icon(Icons.alarm_add_outlined),
+              label: const Text('اختبار موعد بعد دقيقة'),
             ),
             if (!sameTimeEveryDay) ...[
               const SizedBox(height: 16),

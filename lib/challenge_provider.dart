@@ -18,14 +18,12 @@ class ChallengeProvider extends ChangeNotifier {
 
   /// التحديات النشطة أو الفاشلة، أي كل شيء عدا المُنجَز، وهي التي
   /// تظهر في الشاشة الرئيسية.
-  List<Challenge> get visibleChallenges => _challenges
-      .where((c) => c.status != ChallengeStatus.completed)
-      .toList();
+  List<Challenge> get visibleChallenges =>
+      _challenges.where((c) => c.status != ChallengeStatus.completed).toList();
 
   /// التحديات التي أُنجزت، وتظهر في قسم منفصل.
-  List<Challenge> get completedChallenges => _challenges
-      .where((c) => c.status == ChallengeStatus.completed)
-      .toList();
+  List<Challenge> get completedChallenges =>
+      _challenges.where((c) => c.status == ChallengeStatus.completed).toList();
 
   Group? groupById(String? id) {
     if (id == null) return null;
@@ -48,7 +46,7 @@ class ChallengeProvider extends ChangeNotifier {
     return group;
   }
 
-  void addChallenge({
+  Future<ReminderScheduleResult> addChallenge({
     required String title,
     required String unit,
     required int targetMin,
@@ -71,15 +69,13 @@ class ChallengeProvider extends ChangeNotifier {
       groupId: groupId,
     );
     _challenges.add(challenge);
-    // جدولة الإشعارات بتحصل في الخلفية من غير ما نستنّاها عشان مش
-    // محتاجين نأخّر إضافة التحدي على شاشة المستخدم.
-    unawaited(NotificationService.instance.scheduleForChallenge(challenge));
     notifyListeners();
+    return NotificationService.instance.scheduleForChallenge(challenge);
   }
 
   /// تعديل تحدٍ موجود. بيحافظ على نفس الكائن (فسجلّ تقدمه ولونه
   /// يفضلوا كما هم)، وبيعيد جدولة تنبيهاته من جديد.
-  void updateChallenge(
+  Future<ReminderScheduleResult> updateChallenge(
     String id, {
     required String title,
     required String unit,
@@ -101,8 +97,8 @@ class ChallengeProvider extends ChangeNotifier {
       ..reminder = reminder
       ..groupId = groupId;
 
-    unawaited(NotificationService.instance.scheduleForChallenge(challenge));
     notifyListeners();
+    return NotificationService.instance.scheduleForChallenge(challenge);
   }
 
   void addLog(String challengeId, int amount) {

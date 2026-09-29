@@ -16,6 +16,20 @@ class ReminderPermissionStatus {
   });
 }
 
+class ReminderScheduleResult {
+  final int scheduledCount;
+  final DateTime? nextScheduledAt;
+  final bool exact;
+  final String? error;
+
+  const ReminderScheduleResult({
+    required this.scheduledCount,
+    required this.nextScheduledAt,
+    required this.exact,
+    this.error,
+  });
+}
+
 /// المسؤول عن جدولة/إلغاء تنبيهات التحديات كإشعارات حقيقية من نظام
 /// التشغيل، مستقلة تمامًا عن كون التطبيق فاتح أو مقفول.
 class NotificationService {
@@ -119,6 +133,44 @@ class NotificationService {
     );
   }
 
+  Future<ReminderScheduleResult> scheduleTestNotificationInOneMinute() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    final exact = await android?.canScheduleExactNotifications() ?? true;
+    final scheduledAt = tz.TZDateTime.now(tz.local)
+        .add(const Duration(minutes: 1));
+
+    try {
+      await _plugin.cancel(2147483645);
+      await _plugin.zonedSchedule(
+        2147483645,
+        'اختبار موعد تنبيه التحديات',
+        'إذا وصل هذا الإشعار، فجدولة المواعيد تعمل.',
+        scheduledAt,
+        _reminderNotificationDetails,
+        androidScheduleMode: exact
+            ? AndroidScheduleMode.exactAllowWhileIdle
+            : AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      return ReminderScheduleResult(
+        scheduledCount: 1,
+        nextScheduledAt: scheduledAt,
+        exact: exact,
+      );
+    } catch (error) {
+      return ReminderScheduleResult(
+        scheduledCount: 0,
+        nextScheduledAt: null,
+        exact: exact,
+        error: error.toString(),
+      );
+    }
+  }
+
   // رقم إشعار فريد لكل يوم من كل تحدي، مبني من هوية التحدي ورقم اليوم
   int _idFor(String challengeId, int dayIndex) {
     final base = challengeId.hashCode.abs() % 100000;
@@ -135,47 +187,67 @@ class NotificationService {
   /// بيجدول تنبيه لكل يوم من أيام التحدي حسب إعدادات reminder بتاعته.
   /// أي يوم معاده فات بالفعل بيتجاهل، ولو التنبيه متوقف بيلغي أي جدولة
   /// قديمة بس من غير ما يحط جديدة.
-  Future<void> scheduleForChallenge(Challenge c) async {
-    await cancelForChallenge(c);
-    if (!c.reminder.enabled) return;
+  Future<ReminderScheduleResult> scheduleForChallenge(Challenge c) async {
+    try {
+      await cancelForChallenge(c);
+      if (!c.reminder.enabled) {
+        return const ReminderScheduleResult(
+          scheduledCount: 0,
+          nextScheduledAt: null,
+          exact: true,
+        );
+      }
 
-    final android = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    final exactAlarmsAllowed =
-        await android?.canScheduleExactNotifications() ?? true;
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      final exact = await android?.canScheduleExactNotifications() ?? true;
+      final now = tz.TZDateTime.now(tz.local);
+      DateTime? nextScheduledAt;
+      var scheduledCount = 0;
 
-    final details = _reminderNotificationDetails;
+      for (var day = 0; day < c.totalDays; day++) {
+        final date = c.startDate.add(Duration(days: day));
+        final time = c.reminder.timeForDay(day);
+        final scheduled = tz.TZDateTime(
+          tz.local,
+          date.year,
+          date.month,
+          date.day,
+          time.hour,
+          time.minute,
+        );
 
-    final now = tz.TZDateTime.now(tz.local);
+        if (scheduled.isBefore(now)) continue;
 
-    for (var day = 0; day < c.totalDays; day++) {
-      final date = c.startDate.add(Duration(days: day));
-      final time = c.reminder.timeForDay(day);
+        await _plugin.zonedSchedule(
+          _idFor(c.id, day),
+          'وقت "${c.title}"',
+          'سجّل تقدمك في ${c.unit} اليوم',
+          scheduled,
+          _reminderNotificationDetails,
+          androidScheduleMode: exact
+              ? AndroidScheduleMode.exactAllowWhileIdle
+              : AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+        );
+        scheduledCount++;
+        nextScheduledAt ??= scheduled;
+      }
 
-      final scheduled = tz.TZDateTime(
-        tz.local,
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
+      return ReminderScheduleResult(
+        scheduledCount: scheduledCount,
+        nextScheduledAt: nextScheduledAt,
+        exact: exact,
       );
-
-      if (scheduled.isBefore(now)) continue;
-
-      await _plugin.zonedSchedule(
-        _idFor(c.id, day),
-        'وقت "${c.title}"',
-        'سجّل تقدمك في ${c.unit} اليوم',
-        scheduled,
-        details,
-        androidScheduleMode: exactAlarmsAllowed
-            ? AndroidScheduleMode.exactAllowWhileIdle
-            : AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
+    } catch (error) {
+      return ReminderScheduleResult(
+        scheduledCount: 0,
+        nextScheduledAt: null,
+        exact: false,
+        error: error.toString(),
       );
     }
   }

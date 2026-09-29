@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import 'package:flutter/material.dart' show TimeOfDay;
 
 /// تسجيل واحد للتقدم: كام وحدة عملتي في يوم معين
@@ -7,6 +8,16 @@ class LogEntry {
   final int amount;
 
   LogEntry({required this.date, required this.amount});
+
+  Map<String, dynamic> toJson() => {
+    'date': date.toIso8601String(),
+    'amount': amount,
+  };
+
+  factory LogEntry.fromJson(Map<String, dynamic> json) => LogEntry(
+    date: DateTime.parse(json['date'] as String),
+    amount: json['amount'] as int,
+  );
 }
 
 /// إعدادات التنبيه لتحدي واحد
@@ -27,6 +38,38 @@ class ReminderSettings {
     this.defaultTime = const TimeOfDay(hour: 20, minute: 0),
     this.perDayTimes = const {},
   });
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'sameTimeEveryDay': sameTimeEveryDay,
+    'defaultHour': defaultTime.hour,
+    'defaultMinute': defaultTime.minute,
+    'perDayTimes': perDayTimes.map(
+      (day, time) => MapEntry('$day', [time.hour, time.minute]),
+    ),
+  };
+
+  factory ReminderSettings.fromJson(Map<String, dynamic> json) {
+    final times = (json['perDayTimes'] as Map<String, dynamic>? ?? {}).map((
+      day,
+      value,
+    ) {
+      final parts = value as List<dynamic>;
+      return MapEntry(
+        int.parse(day),
+        TimeOfDay(hour: parts[0] as int, minute: parts[1] as int),
+      );
+    });
+    return ReminderSettings(
+      enabled: json['enabled'] as bool? ?? false,
+      sameTimeEveryDay: json['sameTimeEveryDay'] as bool? ?? true,
+      defaultTime: TimeOfDay(
+        hour: json['defaultHour'] as int? ?? 20,
+        minute: json['defaultMinute'] as int? ?? 0,
+      ),
+      perDayTimes: times,
+    );
+  }
 
   ReminderSettings copyWith({
     bool? enabled,
@@ -83,6 +126,43 @@ class Challenge {
     this.groupId,
   });
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'unit': unit,
+    'targetMin': targetMin,
+    'targetMax': targetMax,
+    'startDate': startDate.toIso8601String(),
+    'endDate': endDate.toIso8601String(),
+    'colorIndex': colorIndex,
+    'reminder': reminder.toJson(),
+    'groupId': groupId,
+    'logs': logs.map((log) => log.toJson()).toList(),
+  };
+
+  factory Challenge.fromJson(Map<String, dynamic> json) {
+    final challenge = Challenge(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      unit: json['unit'] as String,
+      targetMin: json['targetMin'] as int,
+      targetMax: json['targetMax'] as int,
+      startDate: DateTime.parse(json['startDate'] as String),
+      endDate: DateTime.parse(json['endDate'] as String),
+      colorIndex: json['colorIndex'] as int,
+      reminder: ReminderSettings.fromJson(
+        json['reminder'] as Map<String, dynamic>,
+      ),
+      groupId: json['groupId'] as String?,
+    );
+    challenge.logs.addAll(
+      (json['logs'] as List<dynamic>? ?? []).map(
+        (entry) => LogEntry.fromJson(entry as Map<String, dynamic>),
+      ),
+    );
+    return challenge;
+  }
+
   int get totalDone => logs.fold(0, (sum, log) => sum + log.amount);
 
   int get remaining => max(0, targetMin - totalDone);
@@ -119,8 +199,7 @@ class Challenge {
       daysLeft == 0 ? remaining : (remaining / daysLeft).ceil();
 
   /// متوسط اللي بتسجليه يوميًا من بداية التحدي لحد دلوقتي
-  double get averagePerDay =>
-      daysElapsed == 0 ? 0.0 : totalDone / daysElapsed;
+  double get averagePerDay => daysElapsed == 0 ? 0.0 : totalDone / daysElapsed;
 
   /// الحالة: مكتمل لو وصل للحد الأدنى، فشل لو خلصت مدته من غير ما يوصل،
   /// وإلا فهو لا يزال نشطًا.
@@ -138,4 +217,9 @@ class Group {
   String title;
 
   Group({required this.id, required this.title});
+
+  Map<String, dynamic> toJson() => {'id': id, 'title': title};
+
+  factory Group.fromJson(Map<String, dynamic> json) =>
+      Group(id: json['id'] as String, title: json['title'] as String);
 }

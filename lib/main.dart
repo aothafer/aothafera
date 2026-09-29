@@ -14,9 +14,11 @@ void main() async {
     SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
   );
   await NotificationService.instance.init();
+  final challengeProvider = ChallengeProvider();
+  await challengeProvider.load();
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => ChallengeProvider(),
+    ChangeNotifierProvider.value(
+      value: challengeProvider,
       child: const MyApp(),
     ),
   );

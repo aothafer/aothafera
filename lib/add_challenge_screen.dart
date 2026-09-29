@@ -230,8 +230,8 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     final message = result.error != null
         ? 'فشلت جدولة الاختبار: ${result.error}'
         : result.exact
-        ? 'اتجدول اختبار بعد دقيقة بموعد دقيق. سيظهر حتى لو خرجتِ من التطبيق.'
-        : 'اتجدول اختبار بعد دقيقة بوقت تقريبي؛ قد يتأخر بسبب إعدادات أندرويد.';
+        ? 'اتظبط منبه يرن بعد دقيقة حتى لو خرجتِ من التطبيق. أوقفيه من زر الإشعار.'
+        : 'اتظبط منبه بعد دقيقة بموعد تقريبي؛ قد يتأخر. أوقفي الرنين من زر الإشعار.';
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
   }
@@ -270,72 +270,75 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    try {
+      if (!mounted) return;
 
-    if (_reminderOn) {
-      final permissions = await NotificationService.instance
-          .checkReminderPermissions();
-      if (!permissions.notificationsAllowed) {
-        if (mounted) await _showNotificationSettingsPrompt();
-        return;
+      final min = int.parse(_minController.text);
+      final max = _maxController.text.isEmpty
+          ? min
+          : int.parse(_maxController.text);
+      final reminder = ReminderSettings(
+        enabled: _reminderOn,
+        sameTimeEveryDay: _sameTimeEveryDay,
+        defaultTime: _defaultTime,
+        perDayTimes: Map.of(_perDayTimes),
+      );
+
+      final provider = context.read<ChallengeProvider>();
+      final scheduleResult = _isEditing
+          ? await provider.updateChallenge(
+              widget.editing!.id,
+              title: _titleController.text.trim(),
+              unit: _unitController.text.trim(),
+              targetMin: min,
+              targetMax: max,
+              startDate: _range.start,
+              endDate: _range.end,
+              reminder: reminder,
+              groupId: _groupId,
+            )
+          : await provider.addChallenge(
+              title: _titleController.text.trim(),
+              unit: _unitController.text.trim(),
+              targetMin: min,
+              targetMax: max,
+              startDate: _range.start,
+              endDate: _range.end,
+              reminder: reminder,
+              groupId: _groupId,
+            );
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.pop(context);
+      if (_reminderOn) {
+        final next = scheduleResult.nextScheduledAt;
+        final nextTime = next == null
+            ? ''
+            : ' أول موعد: ${next.day}/${next.month}، '
+                  '${next.hour.toString().padLeft(2, '0')}:${next.minute.toString().padLeft(2, '0')}.';
+        final message = scheduleResult.error != null
+            ? 'حُفظ التحدي، لكن تعذرت جدولة التنبيه: ${scheduleResult.error}'
+            : scheduleResult.scheduledCount == 0
+            ? 'حُفظ التحدي، لكن لم يُجدول أي موعد مستقبلي. راجعي التاريخ والوقت.'
+            : 'اتجدول ${scheduleResult.scheduledCount} تنبيه'
+                  '${scheduleResult.exact ? ' بموعد دقيق.' : ' بوقت تقريبي.'}$nextTime';
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(message),
+            duration: const Duration(seconds: 8),
+          ),
+        );
       }
-    }
-    if (!mounted) return;
-
-    final min = int.parse(_minController.text);
-    final max = _maxController.text.isEmpty
-        ? min
-        : int.parse(_maxController.text);
-
-    final reminder = ReminderSettings(
-      enabled: _reminderOn,
-      sameTimeEveryDay: _sameTimeEveryDay,
-      defaultTime: _defaultTime,
-      perDayTimes: Map.of(_perDayTimes),
-    );
-
-    final provider = context.read<ChallengeProvider>();
-    late final ReminderScheduleResult scheduleResult;
-    if (_isEditing) {
-      scheduleResult = await provider.updateChallenge(
-        widget.editing!.id,
-        title: _titleController.text.trim(),
-        unit: _unitController.text.trim(),
-        targetMin: min,
-        targetMax: max,
-        startDate: _range.start,
-        endDate: _range.end,
-        reminder: reminder,
-        groupId: _groupId,
-      );
-    } else {
-      scheduleResult = await provider.addChallenge(
-        title: _titleController.text.trim(),
-        unit: _unitController.text.trim(),
-        targetMin: min,
-        targetMax: max,
-        startDate: _range.start,
-        endDate: _range.end,
-        reminder: reminder,
-        groupId: _groupId,
-      );
-    }
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    Navigator.pop(context);
-    if (_reminderOn) {
-      final next = scheduleResult.nextScheduledAt;
-      final nextTime = next == null
-          ? ''
-          : ' أول موعد: ${next.day}/${next.month}، '
-                '${next.hour.toString().padLeft(2, '0')}:${next.minute.toString().padLeft(2, '0')}.';
-      final message = scheduleResult.error != null
-          ? 'تعذر جدولة التنبيه: ${scheduleResult.error}'
-          : scheduleResult.scheduledCount == 0
-          ? 'لم يُجدول أي موعد مستقبلي. راجعي تاريخ ووقت التحدي.'
-          : 'اتجدول ${scheduleResult.scheduledCount} تنبيه'
-                '${scheduleResult.exact ? ' بموعد دقيق.' : ' بوقت تقريبي.'}$nextTime';
-      messenger.showSnackBar(
-        SnackBar(content: Text(message), duration: const Duration(seconds: 8)),
+    } catch (error, stackTrace) {
+      debugPrint('Could not save challenge: $error\n$stackTrace');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'حصلت مشكلة أثناء حفظ التحدي. راجعي مساحة الجهاز وحاولي مرة أخرى.',
+          ),
+          duration: Duration(seconds: 6),
+        ),
       );
     }
   }

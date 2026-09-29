@@ -18,6 +18,37 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
+                    "scheduleAlarm" -> {
+                        val exact = ReminderAlarmScheduler.schedule(
+                            context = this,
+                            id = call.argument<Int>("id") ?: error("Missing alarm id"),
+                            atMillis = call.argument<Long>("atMillis") ?: error("Missing alarm time"),
+                            title = call.argument<String>("title") ?: "حان وقت تحديك",
+                            body = call.argument<String>("body") ?: "افتحي التطبيق وسجّلي تقدمك",
+                            year = call.argument<Int>("year") ?: error("Missing alarm year"),
+                            month = call.argument<Int>("month") ?: error("Missing alarm month"),
+                            day = call.argument<Int>("day") ?: error("Missing alarm day"),
+                            hour = call.argument<Int>("hour") ?: error("Missing alarm hour"),
+                            minute = call.argument<Int>("minute") ?: error("Missing alarm minute"),
+                            challengeId = call.argument<String>("challengeId"),
+                        )
+                        result.success(exact)
+                    }
+                    "cancelChallengeAlarms" -> {
+                        val challengeId = call.argument<String>("challengeId")
+                            ?: error("Missing challenge id")
+                        ReminderAlarmScheduler.cancelChallenge(this, challengeId)
+                        result.success(null)
+                    }
+                    "cancelAlarm" -> {
+                        val id = call.argument<Int>("id") ?: error("Missing alarm id")
+                        ReminderAlarmScheduler.cancel(this, id)
+                        result.success(null)
+                    }
+                    "restoreAlarms" -> {
+                        ReminderAlarmScheduler.restore(this)
+                        result.success(null)
+                    }
                     "openNotificationSettings" -> {
                         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {

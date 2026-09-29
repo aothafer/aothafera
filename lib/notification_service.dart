@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
@@ -59,6 +60,20 @@ class NotificationService {
     );
     const settings = InitializationSettings(android: androidSettings);
     await _plugin.initialize(settings);
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      // Remove one-shot plugin alarms from older app versions. Native alarm
+      // scheduling below now owns the ringing service and stop action.
+      try {
+        final legacyRequests = await _plugin.pendingNotificationRequests();
+        for (final request in legacyRequests) {
+          await _plugin.cancel(request.id);
+        }
+        await _settingsChannel.invokeMethod<void>('restoreAlarms');
+      } catch (error) {
+        debugPrint('Could not migrate pending reminders: $error');
+      }
+    }
 
     _initialized = true;
   }
@@ -143,7 +158,23 @@ class NotificationService {
         .add(const Duration(minutes: 1));
 
     try {
-      await _plugin.cancel(2147483645);
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        await _settingsChannel.invokeMethod<bool>('cancelAlarm', {
+          'id': 2147483645,
+        });
+        final nativeExact = await _scheduleNativeAlarm(
+          id: 2147483645,
+          scheduledAt: scheduledAt,
+          title: 'اختبار منبه التحديات',
+          body: 'إذا سمعتِ الرنين وأوقفتِه من الإشعار، فالمنبه الفعلي يعمل.',
+        );
+        return ReminderScheduleResult(
+          scheduledCount: 1,
+          nextScheduledAt: scheduledAt,
+          exact: nativeExact,
+        );
+      }
+
       await _plugin.zonedSchedule(
         2147483645,
         'اختبار موعد تنبيه التحديات',
@@ -161,24 +192,37 @@ class NotificationService {
         nextScheduledAt: scheduledAt,
         exact: exact,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Failed to schedule the ringing alarm test: $error\n$stackTrace',
+      );
       return ReminderScheduleResult(
         scheduledCount: 0,
         nextScheduledAt: null,
         exact: exact,
-        error: error.toString(),
+        error: 'تعذرت جدولة المنبه. راجعي أذونات الإشعارات والمنبهات الدقيقة.',
       );
     }
   }
 
   // رقم إشعار فريد لكل يوم من كل تحدي، مبني من هوية التحدي ورقم اليوم
   int _idFor(String challengeId, int dayIndex) {
-    final base = challengeId.hashCode.abs() % 100000;
+    var hash = 0x811C9DC5;
+    for (final codeUnit in challengeId.codeUnits) {
+      hash = ((hash ^ codeUnit) * 0x01000193) & 0x7fffffff;
+    }
+    final base = hash % 100000;
     return base * 10000 + dayIndex;
   }
 
   /// بيحذف كل التنبيهات المجدولة لتحدي معين.
   Future<void> cancelForChallenge(Challenge c) async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      await _settingsChannel.invokeMethod<void>('cancelChallengeAlarms', {
+        'challengeId': c.id,
+      });
+      return;
+    }
     for (var i = 0; i < c.totalDays; i++) {
       await _plugin.cancel(_idFor(c.id, i));
     }
@@ -202,7 +246,7 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >();
-      final exact = await android?.canScheduleExactNotifications() ?? true;
+      var exact = await android?.canScheduleExactNotifications() ?? true;
       final now = tz.TZDateTime.now(tz.local);
       DateTime? nextScheduledAt;
       var scheduledCount = 0;
@@ -221,18 +265,18 @@ class NotificationService {
 
         if (scheduled.isBefore(now)) continue;
 
-        await _plugin.zonedSchedule(
-          _idFor(c.id, day),
-          'وقت "${c.title}"',
-          'سجّل تقدمك في ${c.unit} اليوم',
-          scheduled,
-          _reminderNotificationDetails,
-          androidScheduleMode: exact
-              ? AndroidScheduleMode.exactAllowWhileIdle
-              : AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
-        );
+        final id = _idFor(c.id, day);
+        final scheduledExactly =
+            !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+            ? await _scheduleNativeAlarm(
+                id: id,
+                scheduledAt: scheduled,
+                title: 'وقت "${c.title}"',
+                body: 'سجّلي تقدمك في ${c.unit} اليوم',
+                challengeId: c.id,
+              )
+            : await _schedulePluginNotification(id, c, scheduled, exact);
+        exact = exact && scheduledExactly;
         scheduledCount++;
         nextScheduledAt ??= scheduled;
       }
@@ -242,14 +286,58 @@ class NotificationService {
         nextScheduledAt: nextScheduledAt,
         exact: exact,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint('Failed to schedule challenge alarm: $error\n$stackTrace');
       return ReminderScheduleResult(
         scheduledCount: 0,
         nextScheduledAt: null,
         exact: false,
-        error: error.toString(),
+        error: 'تعذرت جدولة المنبه. راجعي أذونات الإشعارات والمنبهات الدقيقة.',
       );
     }
+  }
+
+  Future<bool> _scheduleNativeAlarm({
+    required int id,
+    required tz.TZDateTime scheduledAt,
+    required String title,
+    required String body,
+    String? challengeId,
+  }) async {
+    return await _settingsChannel.invokeMethod<bool>('scheduleAlarm', {
+          'id': id,
+          'atMillis': scheduledAt.millisecondsSinceEpoch,
+          'title': title,
+          'body': body,
+          'year': scheduledAt.year,
+          'month': scheduledAt.month,
+          'day': scheduledAt.day,
+          'hour': scheduledAt.hour,
+          'minute': scheduledAt.minute,
+          'challengeId': challengeId,
+        }) ??
+        false;
+  }
+
+  Future<bool> _schedulePluginNotification(
+    int id,
+    Challenge challenge,
+    tz.TZDateTime scheduledAt,
+    bool exact,
+  ) async {
+    await _plugin.zonedSchedule(
+      id,
+      'وقت "${challenge.title}"',
+      'سجّلي تقدمك في ${challenge.unit} اليوم',
+      scheduledAt,
+      _reminderNotificationDetails,
+      androidScheduleMode: exact
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+    return exact;
   }
 
   NotificationDetails get _reminderNotificationDetails =>

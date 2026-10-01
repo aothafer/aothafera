@@ -139,72 +139,6 @@ class NotificationService {
   Future<void> openExactAlarmSettings() =>
       _settingsChannel.invokeMethod<void>('openExactAlarmSettings');
 
-  Future<void> showTestNotification() async {
-    await _plugin.show(
-      2147483646,
-      'اختبار تنبيه التحديات',
-      'الإشعارات تعمل على هذا الجهاز.',
-      _reminderNotificationDetails,
-    );
-  }
-
-  Future<ReminderScheduleResult> scheduleTestNotificationInOneMinute() async {
-    final android = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    final exact = await android?.canScheduleExactNotifications() ?? true;
-    final scheduledAt = tz.TZDateTime.now(tz.local)
-        .add(const Duration(minutes: 1));
-
-    try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        await _settingsChannel.invokeMethod<bool>('cancelAlarm', {
-          'id': 2147483645,
-        });
-        final nativeExact = await _scheduleNativeAlarm(
-          id: 2147483645,
-          scheduledAt: scheduledAt,
-          title: 'اختبار منبه التحديات',
-          body: 'إذا سمعتِ الرنين وأوقفتِه من الإشعار، فالمنبه الفعلي يعمل.',
-        );
-        return ReminderScheduleResult(
-          scheduledCount: 1,
-          nextScheduledAt: scheduledAt,
-          exact: nativeExact,
-        );
-      }
-
-      await _plugin.zonedSchedule(
-        2147483645,
-        'اختبار موعد تنبيه التحديات',
-        'إذا وصل هذا الإشعار، فجدولة المواعيد تعمل.',
-        scheduledAt,
-        _reminderNotificationDetails,
-        androidScheduleMode: exact
-            ? AndroidScheduleMode.exactAllowWhileIdle
-            : AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      return ReminderScheduleResult(
-        scheduledCount: 1,
-        nextScheduledAt: scheduledAt,
-        exact: exact,
-      );
-    } catch (error, stackTrace) {
-      debugPrint(
-        'Failed to schedule the ringing alarm test: $error\n$stackTrace',
-      );
-      return ReminderScheduleResult(
-        scheduledCount: 0,
-        nextScheduledAt: null,
-        exact: exact,
-        error: 'تعذرت جدولة المنبه. راجعي أذونات الإشعارات والمنبهات الدقيقة.',
-      );
-    }
-  }
-
   // رقم إشعار فريد لكل يوم من كل تحدي، مبني من هوية التحدي ورقم اليوم
   int _idFor(String challengeId, int dayIndex) {
     var hash = 0x811C9DC5;
@@ -226,6 +160,35 @@ class NotificationService {
     for (var i = 0; i < c.totalDays; i++) {
       await _plugin.cancel(_idFor(c.id, i));
     }
+  }
+
+  /// يتحقق من وجود موعد تنبيه واحد على الأقل ما زال في المستقبل.
+  /// يُستخدم قبل حفظ تحدٍ جديد حتى لا يُقبل تنبيه انتهى وقته بالفعل.
+  Future<bool> hasFutureReminderOccurrence({
+    required DateTime startDate,
+    required DateTime endDate,
+    required ReminderSettings reminder,
+  }) async {
+    await init();
+    final now = tz.TZDateTime.now(tz.local);
+    final start = DateTime(startDate.year, startDate.month, startDate.day);
+    final end = DateTime(endDate.year, endDate.month, endDate.day);
+    final totalDays = end.difference(start).inDays + 1;
+
+    for (var day = 0; day < totalDays; day++) {
+      final date = start.add(Duration(days: day));
+      final time = reminder.timeForDay(day);
+      final scheduled = tz.TZDateTime(
+        tz.local,
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
+      if (scheduled.isAfter(now)) return true;
+    }
+    return false;
   }
 
   /// بيجدول تنبيه لكل يوم من أيام التحدي حسب إعدادات reminder بتاعته.
@@ -263,7 +226,7 @@ class NotificationService {
           time.minute,
         );
 
-        if (scheduled.isBefore(now)) continue;
+        if (!scheduled.isAfter(now)) continue;
 
         final id = _idFor(c.id, day);
         final scheduledExactly =
@@ -272,7 +235,7 @@ class NotificationService {
                 id: id,
                 scheduledAt: scheduled,
                 title: 'وقت "${c.title}"',
-                body: 'سجّلي تقدمك في ${c.unit} اليوم',
+                body: 'سجّل تقدمك في ${c.unit} اليوم',
                 challengeId: c.id,
               )
             : await _schedulePluginNotification(id, c, scheduled, exact);
@@ -292,7 +255,7 @@ class NotificationService {
         scheduledCount: 0,
         nextScheduledAt: null,
         exact: false,
-        error: 'تعذرت جدولة المنبه. راجعي أذونات الإشعارات والمنبهات الدقيقة.',
+        error: 'تعذرت جدولة المنبه. راجع أذونات الإشعارات والمنبهات الدقيقة.',
       );
     }
   }
@@ -328,7 +291,7 @@ class NotificationService {
     await _plugin.zonedSchedule(
       id,
       'وقت "${challenge.title}"',
-      'سجّلي تقدمك في ${challenge.unit} اليوم',
+      'سجّل تقدمك في ${challenge.unit} اليوم',
       scheduledAt,
       _reminderNotificationDetails,
       androidScheduleMode: exact

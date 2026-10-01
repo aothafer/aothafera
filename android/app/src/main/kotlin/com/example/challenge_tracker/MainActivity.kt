@@ -9,22 +9,29 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var notificationChannel: MethodChannel? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(
+        notificationChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.example.challenge_tracker/notification_settings"
-        ).setMethodCallHandler { call, result ->
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
+                    "getPendingChallengeId" -> {
+                        result.success(intent?.getStringExtra(EXTRA_CHALLENGE_ID))
+                        intent?.removeExtra(EXTRA_CHALLENGE_ID)
+                    }
                     "scheduleAlarm" -> {
                         val exact = ReminderAlarmScheduler.schedule(
                             context = this,
                             id = call.argument<Int>("id") ?: error("Missing alarm id"),
                             atMillis = call.argument<Long>("atMillis") ?: error("Missing alarm time"),
                             title = call.argument<String>("title") ?: "حان وقت تحديك",
-                            body = call.argument<String>("body") ?: "افتحي التطبيق وسجّلي تقدمك",
+                            body = call.argument<String>("body") ?: "افتح التطبيق وسجّل تقدمك",
                             year = call.argument<Int>("year") ?: error("Missing alarm year"),
                             month = call.argument<Int>("month") ?: error("Missing alarm month"),
                             day = call.argument<Int>("day") ?: error("Missing alarm day"),
@@ -38,11 +45,6 @@ class MainActivity : FlutterActivity() {
                         val challengeId = call.argument<String>("challengeId")
                             ?: error("Missing challenge id")
                         ReminderAlarmScheduler.cancelChallenge(this, challengeId)
-                        result.success(null)
-                    }
-                    "cancelAlarm" -> {
-                        val id = call.argument<Int>("id") ?: error("Missing alarm id")
-                        ReminderAlarmScheduler.cancel(this, id)
                         result.success(null)
                     }
                     "restoreAlarms" -> {
@@ -78,6 +80,20 @@ class MainActivity : FlutterActivity() {
             } catch (error: Exception) {
                 result.error("SETTINGS_FAILED", error.message, null)
             }
+            }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(EXTRA_CHALLENGE_ID)?.let { challengeId ->
+            notificationChannel?.invokeMethod("openChallengeProgress", challengeId)
+            intent.removeExtra(EXTRA_CHALLENGE_ID)
+        }
+    }
+
+    companion object {
+        const val EXTRA_CHALLENGE_ID = "open_challenge_id"
     }
 }

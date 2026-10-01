@@ -20,21 +20,42 @@ class RingingAlarmService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            val challengeId = intent.getStringExtra("challengeId")
+            val alarmId = intent.getIntExtra("alarmId", NOTIFICATION_ID)
+            val title = intent.getStringExtra("title") ?: "حان وقت تحديك"
+            val body = intent.getStringExtra("body") ?: "سجّل تقدمك في التحدي"
             stopRinging()
+            if (!challengeId.isNullOrBlank()) {
+                showProgressNotification(alarmId, challengeId, title, body)
+            }
             return START_NOT_STICKY
         }
 
+        val alarmId = intent?.getIntExtra("id", NOTIFICATION_ID) ?: NOTIFICATION_ID
+        val challengeId = intent?.getStringExtra("challengeId")
         val title = intent?.getStringExtra("title") ?: "حان وقت تحديك"
-        val body = intent?.getStringExtra("body") ?: "افتحي التطبيق وسجّلي تقدمك"
-        startForeground(NOTIFICATION_ID, createNotification(title, body))
+        val body = intent?.getStringExtra("body") ?: "افتح التطبيق وسجّل تقدمك"
+        startForeground(
+            NOTIFICATION_ID,
+            createRingingNotification(alarmId, challengeId, title, body),
+        )
         startAlarmTone()
         return START_STICKY
     }
 
-    private fun createNotification(title: String, body: String): Notification {
+    private fun createRingingNotification(
+        alarmId: Int,
+        challengeId: String?,
+        title: String,
+        body: String,
+    ): Notification {
         ensureChannel()
         val stopIntent = Intent(this, RingingAlarmService::class.java)
             .setAction(ACTION_STOP)
+            .putExtra("alarmId", alarmId)
+            .putExtra("challengeId", challengeId)
+            .putExtra("title", title)
+            .putExtra("body", body)
         val stopPendingIntent = PendingIntent.getService(
             this,
             STOP_REQUEST_CODE,
@@ -42,10 +63,17 @@ class RingingAlarmService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val openIntent = Intent(this, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            )
+        if (!challengeId.isNullOrBlank()) {
+            openIntent.putExtra(MainActivity.EXTRA_CHALLENGE_ID, challengeId)
+        }
         val openPendingIntent = PendingIntent.getActivity(
             this,
-            OPEN_REQUEST_CODE,
+            alarmId,
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -69,6 +97,37 @@ class RingingAlarmService : Service() {
             .build()
     }
 
+    private fun showProgressNotification(
+        alarmId: Int,
+        challengeId: String,
+        title: String,
+        body: String,
+    ) {
+        ensureFollowUpChannel()
+        val openIntent = Intent(this, MainActivity::class.java)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            )
+            .putExtra(MainActivity.EXTRA_CHALLENGE_ID, challengeId)
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            alarmId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(this, FOLLOW_UP_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(openPendingIntent)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(alarmId, notification)
+    }
+
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
@@ -82,6 +141,22 @@ class RingingAlarmService : Service() {
             setSound(null, null)
             enableVibration(true)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun ensureFollowUpChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java)
+        if (manager.getNotificationChannel(FOLLOW_UP_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            FOLLOW_UP_CHANNEL_ID,
+            "تذكير بتسجيل التقدم",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "إشعار هادئ لفتح تسجيل التقدم في التحدي"
+            setSound(null, null)
+            enableVibration(false)
         }
         manager.createNotificationChannel(channel)
     }
@@ -137,9 +212,9 @@ class RingingAlarmService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "challenge_ringing_alarm_v1"
+        private const val FOLLOW_UP_CHANNEL_ID = "challenge_progress_follow_up_v1"
         private const val NOTIFICATION_ID = 2147483644
         private const val STOP_REQUEST_CODE = 2147483643
-        private const val OPEN_REQUEST_CODE = 2147483642
         const val ACTION_STOP = "com.example.challenge_tracker.STOP_ALARM"
     }
 }

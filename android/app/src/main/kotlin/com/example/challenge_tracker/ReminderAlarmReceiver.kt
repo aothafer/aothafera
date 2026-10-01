@@ -15,6 +15,7 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
             .putExtra("id", id)
             .putExtra("title", intent.getStringExtra("title"))
             .putExtra("body", intent.getStringExtra("body"))
+            .putExtra("challengeId", intent.getStringExtra("challengeId"))
         ContextCompat.startForegroundService(context, serviceIntent)
     }
 }

@@ -57,13 +57,6 @@ internal object ReminderAlarmScheduler {
         saveSchedules(context, schedules)
     }
 
-    fun cancel(context: Context, id: Int) {
-        cancelPendingIntent(context, id)
-        val schedules = readSchedules(context)
-        schedules.remove(id.toString())
-        saveSchedules(context, schedules)
-    }
-
     fun forget(context: Context, id: Int) {
         val schedules = readSchedules(context)
         schedules.remove(id.toString())
@@ -89,6 +82,7 @@ internal object ReminderAlarmScheduler {
             .putExtra("id", id)
             .putExtra("title", record.optString("title"))
             .putExtra("body", record.optString("body"))
+            .putExtra("challengeId", record.optString("challengeId"))
         val alarmPendingIntent = PendingIntent.getBroadcast(
             context,
             id,

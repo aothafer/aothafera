@@ -16,17 +16,15 @@ class CompletedChallengesScreen extends StatelessWidget {
     final completed = context.watch<ChallengeProvider>().completedChallenges;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('التحديات المُنجزة')),
+      appBar: AppBar(title: const Text('التحديات المنتهية')),
       body: completed.isEmpty
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(32),
                 child: Text(
-                  'لم يُنجز أي تحدٍ بعد',
+                  'لا توجد تحديات منتهية بعد',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
+                  style: Theme.of(context).textTheme.bodyMedium
                       ?.copyWith(color: AppColors.muted),
                 ),
               ),
@@ -60,11 +58,20 @@ class _CompletedTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.tealLight.withValues(alpha: 0.35)),
+          border: Border.all(
+            color: AppColors.tealLight.withValues(alpha: 0.35),
+          ),
         ),
         child: Row(
           children: [
-            const Icon(Icons.emoji_events_outlined, color: AppColors.tealLight),
+            Icon(
+              c.status == ChallengeStatus.completed
+                  ? Icons.emoji_events_outlined
+                  : Icons.flag_outlined,
+              color: c.status == ChallengeStatus.completed
+                  ? AppColors.tealLight
+                  : AppColors.rose,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -72,10 +79,10 @@ class _CompletedTile extends StatelessWidget {
                 children: [
                   Text(c.title, style: Theme.of(context).textTheme.titleMedium),
                   Text(
-                    '${c.totalDone} / ${c.targetMin} ${c.unit}',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
+                    c.status == ChallengeStatus.completed
+                        ? '${c.totalDone} / ${c.targetMax} ${c.unit} — منجز'
+                        : 'انتهت المدة قبل بلوغ الحد الأدنى (${c.targetMin} ${c.unit})',
+                    style: Theme.of(context).textTheme.bodySmall
                         ?.copyWith(color: AppColors.tealLight),
                   ),
                 ],

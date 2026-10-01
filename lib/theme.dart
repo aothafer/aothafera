@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// كل ألوان التطبيق هنا. غيّري أي لون وهيتغير في كل الشاشات.
+/// كل ألوان التطبيق هنا. غيّر أي لون ليتغير في كل الشاشات.
 class AppColors {
   // الأرضية والكروت: بني دافي
   static const bg = Color(0xFF221C19);
@@ -32,16 +32,17 @@ class AppColors {
 }
 
 ThemeData buildAppTheme() {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: AppColors.mustard,
-    brightness: Brightness.dark,
-  ).copyWith(
-    primary: AppColors.mustard,
-    onPrimary: AppColors.bg,
-    secondary: AppColors.tealLight,
-    surface: AppColors.surface,
-    onSurface: AppColors.cream,
-  );
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: AppColors.mustard,
+        brightness: Brightness.dark,
+      ).copyWith(
+        primary: AppColors.mustard,
+        onPrimary: AppColors.bg,
+        secondary: AppColors.tealLight,
+        surface: AppColors.surface,
+        onSurface: AppColors.cream,
+      );
 
   final base = ThemeData(
     brightness: Brightness.dark,
@@ -50,10 +51,8 @@ ThemeData buildAppTheme() {
   );
 
   // IBM Plex Sans Arabic لكل الواجهة (نصوص وعناوين وأزرار وخانات)
-  final body = GoogleFonts.ibmPlexSansArabicTextTheme(base.textTheme).apply(
-    bodyColor: AppColors.cream,
-    displayColor: AppColors.cream,
-  );
+  final body = GoogleFonts.ibmPlexSansArabicTextTheme(base.textTheme)
+      .apply(bodyColor: AppColors.cream, displayColor: AppColors.cream);
 
   final textTheme = body.copyWith(
     headlineMedium: GoogleFonts.ibmPlexSansArabic(
@@ -88,7 +87,9 @@ ThemeData buildAppTheme() {
     floatingActionButtonTheme: FloatingActionButtonThemeData(
       backgroundColor: AppColors.terracotta,
       foregroundColor: AppColors.bg,
-      extendedTextStyle: GoogleFonts.ibmPlexSansArabic(fontWeight: FontWeight.w700),
+      extendedTextStyle: GoogleFonts.ibmPlexSansArabic(
+        fontWeight: FontWeight.w700,
+      ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(

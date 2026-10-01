@@ -5,14 +5,53 @@ import 'package:provider/provider.dart';
 
 import 'add_challenge_screen.dart';
 import 'challenge_provider.dart';
+import 'challenge_statistics_chart.dart';
 import 'models.dart';
 import 'theme.dart';
 
-/// Opens a dedicated details page for the selected challenge.
+/// صفحة الإحصائيات التفصيلية، تُفتح من قائمة الإحصائيات فقط.
 void showChallengeDetail(BuildContext context, Challenge c, Color accent) {
   Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
       builder: (_) => ChallengeDetailScreen(challenge: c, accent: accent),
+    ),
+  );
+}
+
+/// تفاصيل سريعة كما كانت في بطاقات مرمى الهدف.
+void showChallengeSummarySheet(
+  BuildContext context,
+  Challenge c,
+  Color accent,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) => _ChallengeSummarySheet(
+      challenge: c,
+      accent: accent,
+      parentContext: context,
+    ),
+  );
+}
+
+void showGroupStatistics(
+  BuildContext context,
+  Group group,
+  List<Challenge> challenges,
+  Color accent,
+) {
+  Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => GroupStatisticsScreen(
+        group: group,
+        challenges: challenges,
+        accent: accent,
+      ),
     ),
   );
 }
@@ -31,41 +70,35 @@ class ChallengeDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.watch<ChallengeProvider>();
     final c = provider.challenges.firstWhere(
-      (item) => item.id == challenge.id,
+      (x) => x.id == challenge.id,
       orElse: () => challenge,
     );
     final group = provider.groupById(c.groupId);
-    final textTheme = Theme.of(context).textTheme;
-
-    Widget row(String label, String value) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: textTheme.bodyMedium?.copyWith(color: AppColors.muted),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: textTheme.titleSmall?.copyWith(color: AppColors.cream),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    final remainingToMax = math.max(0, c.targetMax - c.totalDone);
-    final statusLabel = switch (c.status) {
+    final remainingMax = math.max(0, c.targetMax - c.totalDone);
+    final status = switch (c.status) {
       ChallengeStatus.active => 'مستمر',
       ChallengeStatus.completed => 'مكتمل',
       ChallengeStatus.failed => 'انتهت المدة',
     };
+    final details = <(String, String)>[
+      ('الحالة', status),
+      if (group != null) ('المجموعة', group.title),
+      ('الحد الأدنى الكلي', '${c.targetMin} ${c.unit}'),
+      ('الحد الأقصى الكلي', '${c.targetMax} ${c.unit}'),
+      ('الحد الأدنى اليومي', '${c.dailyTargetMin} ${c.unit}'),
+      ('الحد الأقصى اليومي', '${c.dailyTargetMax} ${c.unit}'),
+      ('أنجزت حتى الآن', '${c.totalDone} ${c.unit}'),
+      ('المتبقي للحد الأدنى', '${c.remaining} ${c.unit}'),
+      ('المتبقي للحد الأقصى', '$remainingMax ${c.unit}'),
+      ('مدة التحدي', '${c.totalDays} يوم'),
+      ('الأيام المتبقية', '${c.daysLeft} يوم'),
+      (
+        'حد تسجيل إنجاز اليوم (20٪ من الحد الأدنى اليومي)',
+        '${c.minimumDailyCheckIn} ${c.unit}',
+      ),
+      ('متوسط بلوغ الحد الأدنى الكلي يوميًا', '${c.neededPerDay} ${c.unit}'),
+      ('نسبة الإنجاز من الحد الأقصى', '${(c.progress * 100).round()}٪'),
+    ];
 
     return Scaffold(
       appBar: AppBar(
@@ -86,253 +119,263 @@ class ChallengeDetailScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          _DailyAchievementChart(challenge: c, accent: accent),
+          ChallengeStatisticsChart(
+            challenges: [c],
+            targetMax: c.targetMax,
+            unit: c.unit,
+            accent: accent,
+          ),
           const SizedBox(height: 20),
-          Text('تفاصيل التحدي', style: textTheme.titleLarge),
+          Text('تفاصيل التحدي', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: accent.withValues(alpha: 0.25)),
-            ),
-            child: Column(
-              children: [
-                row('الحالة', statusLabel),
-                if (group != null) row('المجموعة', group.title),
-                row('الحد الأدنى الكلي', '${c.targetMin} ${c.unit}'),
-                row('الحد الأقصى الكلي', '${c.targetMax} ${c.unit}'),
-                row('الحد الأدنى اليومي', '${c.dailyTargetMin} ${c.unit}'),
-                row('الحد الأقصى اليومي', '${c.dailyTargetMax} ${c.unit}'),
-                row('أنجزت حتى الآن', '${c.totalDone} ${c.unit}'),
-                row(
-                  'المتبقي للوصول إلى الحد الأدنى',
-                  '${c.remaining} ${c.unit}',
-                ),
-                row(
-                  'المتبقي للوصول إلى الحد الأقصى',
-                  '$remainingToMax ${c.unit}',
-                ),
-                row('مدة التحدي', '${c.totalDays} يوم'),
-                row('الأيام المتبقية', '${c.daysLeft} يوم'),
-                row(
-                  'المطلوب يوميًا للوصول إلى الحد الأدنى',
-                  '${c.neededPerDay} ${c.unit}',
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Text(
-                      'الحساب: المتبقي للوصول إلى الحد الأدنى ÷ الأيام المتبقية.',
-                      style: textTheme.bodySmall?.copyWith(
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ),
-                ),
-                const Divider(height: 28),
-                row(
-                  'نسبة الإنجاز من الحد الأقصى',
-                  '${(c.progress * 100).round()}٪',
-                ),
-                if (c.reminder.enabled)
-                  row(
-                    'موعد التنبيه اليومي',
-                    c.reminder.defaultTime.format(context),
-                  ),
-                if (c.reminder.enabled && c.reminder.perDayTimes.isNotEmpty)
-                  row(
-                    'مواعيد الأيام المخصصة',
-                    '${c.reminder.perDayTimes.length} يوم',
-                  ),
-              ],
-            ),
-          ),
+          _DetailsCard(rows: details, accent: accent),
         ],
       ),
     );
   }
 }
 
-class _DailyAchievementChart extends StatelessWidget {
-  final Challenge challenge;
+class GroupStatisticsScreen extends StatelessWidget {
+  final Group group;
+  final List<Challenge> challenges;
   final Color accent;
-
-  const _DailyAchievementChart({required this.challenge, required this.accent});
-
-  String _formatDate(DateTime date) => '${date.day}/${date.month}';
-
-  @override
-  Widget build(BuildContext context) {
-    final dailyTotals = <DateTime, int>{};
-    for (final log in challenge.logs) {
-      final date = DateUtils.dateOnly(log.date);
-      if (date.isBefore(DateUtils.dateOnly(challenge.startDate)) ||
-          date.isAfter(DateUtils.dateOnly(challenge.endDate))) {
-        continue;
-      }
-      dailyTotals.update(
-        date,
-        (value) => value + log.amount,
-        ifAbsent: () => log.amount,
-      );
-    }
-
-    final ranked = dailyTotals.entries.toList()
-      ..sort((a, b) {
-        final byAmount = b.value.compareTo(a.value);
-        return byAmount != 0 ? byAmount : b.key.compareTo(a.key);
-      });
-    final displayed = ranked.take(8).toList();
-    final best = ranked.isEmpty ? 0 : ranked.first.value;
-    final bestPercent = challenge.targetMax == 0
-        ? 0
-        : (best * 100 / challenge.targetMax).round();
-    final textTheme = Theme.of(context).textTheme;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: accent.withValues(alpha: 0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.show_chart, color: accent),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('إنجازك اليومي', style: textTheme.titleMedium),
-              ),
-              if (ranked.isNotEmpty)
-                Icon(Icons.arrow_upward, color: AppColors.tealLight, size: 21),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            ranked.isEmpty
-                ? 'سجّل إنجازك ليظهر هنا مرتّبًا من الأكبر إلى الأصغر.'
-                : 'أعلى إنجاز: $best ${challenge.unit} · $bestPercent٪ من الحد الأقصى الكلي',
-            style: textTheme.bodySmall?.copyWith(color: AppColors.muted),
-          ),
-          if (ranked.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            for (var index = 0; index < displayed.length; index++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _RankedDayRow(
-                  rank: index + 1,
-                  date: displayed[index].key,
-                  amount: displayed[index].value,
-                  best: best,
-                  targetMax: challenge.targetMax,
-                  unit: challenge.unit,
-                  accent: accent,
-                  formatDate: _formatDate,
-                ),
-              ),
-            if (ranked.length > displayed.length)
-              Text(
-                'يعرض الرسم أعلى ${displayed.length} أيام من ${ranked.length} أيام مسجّلة.',
-                style: textTheme.bodySmall?.copyWith(color: AppColors.muted),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _RankedDayRow extends StatelessWidget {
-  final int rank;
-  final DateTime date;
-  final int amount;
-  final int best;
-  final int targetMax;
-  final String unit;
-  final Color accent;
-  final String Function(DateTime) formatDate;
-
-  const _RankedDayRow({
-    required this.rank,
-    required this.date,
-    required this.amount,
-    required this.best,
-    required this.targetMax,
-    required this.unit,
+  const GroupStatisticsScreen({
+    super.key,
+    required this.group,
+    required this.challenges,
     required this.accent,
-    required this.formatDate,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isBest = rank == 1;
-    final fraction = best == 0 ? 0.0 : amount / best;
-    final percent = targetMax == 0 ? 0 : (amount * 100 / targetMax).round();
-    final color = isBest ? AppColors.tealLight : accent;
+    final provider = context.watch<ChallengeProvider>();
+    final items = provider.challengesInGroup(group.id);
+    final current = items.isEmpty ? challenges : items;
+    final min = current.fold<int>(0, (sum, c) => sum + c.targetMin);
+    final max = current.fold<int>(0, (sum, c) => sum + c.targetMax);
+    final done = current.fold<int>(0, (sum, c) => sum + c.totalDone);
+    final unit = current.map((c) => c.unit).toSet().length == 1
+        ? current.first.unit
+        : 'وحدة';
+    final rows = <(String, String)>[
+      ('عدد التحديات', '${current.length}'),
+      ('الحد الأدنى الكلي', '$min $unit'),
+      ('الحد الأقصى الكلي', '$max $unit'),
+      ('أنجزت حتى الآن', '$done $unit'),
+      ('المتبقي للحد الأدنى', '${math.max(0, min - done)} $unit'),
+      ('المتبقي للحد الأقصى', '${math.max(0, max - done)} $unit'),
+    ];
+    return Scaffold(
+      appBar: AppBar(title: Text(group.title)),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          ChallengeStatisticsChart(
+            challenges: current,
+            targetMax: max,
+            unit: unit,
+            accent: accent,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'تفاصيل المجموعة',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 10),
+          _DetailsCard(rows: rows, accent: accent),
+          const SizedBox(height: 18),
+          for (final c in current)
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              title: Text(c.title),
+              subtitle: Text(
+                '${c.totalDone} من ${c.targetMin}–${c.targetMax} ${c.unit}',
+              ),
+              trailing: Text('${(c.progress * 100).round()}٪'),
+              onTap: () => showChallengeDetail(context, c, accent),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
-    return Row(
+class _DetailsCard extends StatelessWidget {
+  final List<(String, String)> rows;
+  final Color accent;
+  const _DetailsCard({required this.rows, required this.accent});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: accent.withValues(alpha: 0.25)),
+    ),
+    child: Column(
       children: [
-        SizedBox(
-          width: 34,
-          child: Text(
-            '#$rank',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: isBest ? color : AppColors.muted,
-              fontWeight: isBest ? FontWeight.bold : FontWeight.normal,
+        for (final (label, value) in rows)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: AppColors.muted),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    value,
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(color: AppColors.cream),
+                  ),
+                ),
+              ],
             ),
           ),
+      ],
+    ),
+  );
+}
+
+class _ChallengeSummarySheet extends StatelessWidget {
+  final Challenge challenge;
+  final Color accent;
+  final BuildContext parentContext;
+  const _ChallengeSummarySheet({
+    required this.challenge,
+    required this.accent,
+    required this.parentContext,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<ChallengeProvider>();
+    final c = provider.challenges.firstWhere(
+      (x) => x.id == challenge.id,
+      orElse: () => challenge,
+    );
+    final group = provider.groupById(c.groupId);
+    final status = switch (c.status) {
+      ChallengeStatus.active => 'مستمر',
+      ChallengeStatus.completed => 'مكتمل',
+      ChallengeStatus.failed => 'انتهت المدة',
+    };
+    Widget row(String label, String value) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: const TextStyle(color: AppColors.muted)),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.cream,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
         ),
-        Expanded(
+        child: SingleChildScrollView(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                formatDate(date),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 5),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: fraction.clamp(0.0, 1.0),
-                  minHeight: 8,
-                  backgroundColor: AppColors.track,
-                  valueColor: AlwaysStoppedAnimation(color),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.track,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
               ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      c.title,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push<void>(
+                        parentContext,
+                        MaterialPageRoute<void>(
+                          builder: (_) => AddChallengeScreen(editing: c),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              if (group != null)
+                Text(
+                  group.title,
+                  style: const TextStyle(color: AppColors.muted),
+                ),
+              const SizedBox(height: 10),
+              Text(
+                '${c.totalDone} / ${c.targetMax} ${c.unit}',
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(color: accent),
+              ),
+              Text(
+                'الهدف اليومي: ${c.dailyTargetMin}–${c.dailyTargetMax} ${c.unit}',
+                style: const TextStyle(color: AppColors.muted),
+              ),
+              const Divider(height: 26),
+              row('الحالة', status),
+              row('إجمالي مدة التحدي', '${c.totalDays} يوم'),
+              row('المدة المنقضية', '${c.daysElapsed} يوم'),
+              row('المتبقي من المدة', '${c.daysLeft} يوم'),
+              row('الحد الأدنى المطلوب', '${c.targetMin} ${c.unit}'),
+              row('الحد الأقصى المطلوب', '${c.targetMax} ${c.unit}'),
+              row(
+                'متوسط بلوغ الحد الأدنى الكلي يوميًا',
+                '${c.neededPerDay} ${c.unit}',
+              ),
+              row(
+                'كل ما تحتاجه لتسجيل إنجاز اليوم (20٪)',
+                '${c.minimumDailyCheckIn} ${c.unit}',
+              ),
+              if (c.reminder.enabled)
+                row(
+                  'موعد التنبيه اليومي',
+                  c.reminder.defaultTime.format(context),
+                ),
+              if (c.reminder.enabled && c.reminder.perDayTimes.isNotEmpty)
+                row(
+                  'مواعيد الأيام المخصصة',
+                  '${c.reminder.perDayTimes.length} يوم',
+                ),
+              const SizedBox(height: 10),
             ],
           ),
         ),
-        const SizedBox(width: 12),
-        SizedBox(
-          width: 88,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '$amount $unit',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: isBest ? color : AppColors.cream,
-                  fontWeight: isBest ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-              Text(
-                '$percent٪ من الحد الأقصى',
-                style: Theme.of(context).textTheme.labelSmall
-                    ?.copyWith(color: AppColors.muted),
-              ),
-            ],
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

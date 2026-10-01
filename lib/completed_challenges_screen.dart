@@ -50,7 +50,7 @@ class _CompletedTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = challenge;
     return InkWell(
-      onTap: () => showChallengeDetail(context, c, AppColors.tealLight),
+      onTap: () => showChallengeSummarySheet(context, c, AppColors.tealLight),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),

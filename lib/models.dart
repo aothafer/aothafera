@@ -237,6 +237,9 @@ class Challenge {
   int get neededPerDay =>
       daysLeft == 0 ? remaining : (remaining / daysLeft).ceil();
 
+  /// الحد الأدنى المقبول لتسجيل إنجاز يوم التنبيه: 20٪ من الحد الأدنى اليومي.
+  int get minimumDailyCheckIn => (dailyTargetMin * 20 + 99) ~/ 100;
+
   /// متوسط ما تسجله يوميًا من بداية التحدي حتى الآن
   double get averagePerDay => daysElapsed == 0 ? 0.0 : totalDone / daysElapsed;
 

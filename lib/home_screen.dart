@@ -75,7 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final loggedToday = c.logs
           .where((log) => DateUtils.isSameDay(log.date, today))
           .fold<int>(0, (total, log) => total + log.amount);
-      final minimumToday = (c.dailyTargetMin * 20 + 99) ~/ 100;
+      final minimumToday = c.minimumDailyCheckIn;
       if (loggedToday + amount < minimumToday) {
         final scheduleAgain = await showDialog<bool>(
           context: context,
@@ -357,7 +357,7 @@ class _ChallengeCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
-        onTap: () => showChallengeDetail(context, c, accent),
+        onTap: () => showChallengeSummarySheet(context, c, accent),
         child: Container(
           margin: const EdgeInsets.only(bottom: 14),
           padding: const EdgeInsets.all(16),
@@ -428,7 +428,8 @@ class _ChallengeCard extends StatelessWidget {
                           ),
                           _InfoChip(
                             icon: Icons.trending_up,
-                            text: '${c.neededPerDay} ${c.unit} يوميًا',
+                            text:
+                                'متوسط بلوغ الحد الأدنى: ${c.neededPerDay} ${c.unit} يوميًا',
                             color: accent,
                           ),
                         ],

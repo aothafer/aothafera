@@ -28,7 +28,6 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
 
   // إعدادات التنبيه
   late bool _reminderOn;
-  late bool _sameTimeEveryDay;
   late TimeOfDay _defaultTime;
 
   // الأيام اللي اتخصص لها وقت مختلف عن الوقت الافتراضي (المفتاح: رقم اليوم
@@ -47,22 +46,23 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
 
     _titleController = TextEditingController(text: c?.title ?? '');
     _unitController = TextEditingController(text: c?.unit ?? '');
-    _minController = TextEditingController(text: c?.targetMin.toString() ?? '');
+    _minController = TextEditingController(
+      text: c?.dailyTargetMin.toString() ?? '',
+    );
     _maxController = TextEditingController(
-      text: (c != null && c.targetMax > c.targetMin)
-          ? c.targetMax.toString()
+      text: (c != null && c.dailyTargetMax > c.dailyTargetMin)
+          ? c.dailyTargetMax.toString()
           : '',
     );
 
     _range = c == null
         ? DateTimeRange(
             start: DateTime.now(),
-            end: DateTime.now().add(const Duration(days: 30)),
+            end: DateTime.now().add(const Duration(days: 29)),
           )
         : DateTimeRange(start: c.startDate, end: c.endDate);
 
     _reminderOn = c?.reminder.enabled ?? false;
-    _sameTimeEveryDay = c?.reminder.sameTimeEveryDay ?? true;
     _defaultTime =
         c?.reminder.defaultTime ?? const TimeOfDay(hour: 20, minute: 0);
     _perDayTimes = Map.of(c?.reminder.perDayTimes ?? {});
@@ -79,21 +79,49 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
   }
 
   Future<void> _pickRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
-      initialDateRange: _range,
+    final firstAllowed = DateUtils.dateOnly(
+      DateTime.now().subtract(const Duration(days: 365)),
     );
-    if (picked != null) {
-      setState(() {
-        _range = picked;
-        _perDayTimes.clear(); // المدة تغيّرت، فالتخصيص القديم لم يعد له معنى
-      });
-    }
+    final lastAllowed = DateUtils.dateOnly(
+      DateTime.now().add(const Duration(days: 365 * 3)),
+    );
+    final pickedStart = await showDatePicker(
+      context: context,
+      firstDate: firstAllowed,
+      lastDate: lastAllowed,
+      initialDate: DateUtils.dateOnly(_range.start),
+    );
+    if (pickedStart == null || !mounted) return;
+
+    final start = DateUtils.dateOnly(pickedStart);
+    final oldEnd = DateUtils.dateOnly(_range.end);
+    final initialEnd = oldEnd.isBefore(start) ? start : oldEnd;
+    final pickedEnd = await showDatePicker(
+      context: context,
+      firstDate: start,
+      lastDate: lastAllowed,
+      initialDate: initialEnd,
+    );
+    if (pickedEnd == null || !mounted) return;
+
+    setState(() {
+      _range = DateTimeRange(start: start, end: DateUtils.dateOnly(pickedEnd));
+      _perDayTimes.clear(); // تغيّرت المدة، فالتخصيص القديم لم يعد صالحًا
+    });
   }
 
   String _fmt(DateTime d) => '${d.day}/${d.month}/${d.year}';
+
+  int get _durationDays =>
+      DateUtils.dateOnly(_range.end)
+          .difference(DateUtils.dateOnly(_range.start))
+          .inDays +
+      1;
+
+  int get _dailyMinPreview => int.tryParse(_minController.text) ?? 0;
+
+  int get _dailyMaxPreview =>
+      int.tryParse(_maxController.text) ?? _dailyMinPreview;
 
   Future<void> _pickDefaultTime() async {
     final picked = await showTimePicker(
@@ -109,6 +137,28 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     return d.difference(s).inDays;
   }
 
+  bool _isReminderTimeInFuture(DateTime day, TimeOfDay time) {
+    final occurrence = DateTime(
+      day.year,
+      day.month,
+      day.day,
+      time.hour,
+      time.minute,
+    );
+    return occurrence.isAfter(DateTime.now());
+  }
+
+  void _showPastCustomTimeMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'ميعاد التنبيه لليوم ده فات بالفعل. اختر وقتًا قادمًا عشان التنبيه يرن.',
+        ),
+        duration: Duration(seconds: 5),
+      ),
+    );
+  }
+
   /// بيفتح الأجندة، والمستخدم يختار يومًا من ضمن مدة التحدي فقط، وبعدها
   /// يفتح وقت التنبيه لذلك اليوم.
   Future<void> _addCustomDay() async {
@@ -120,19 +170,36 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     if (day == null || !mounted) return;
 
     final index = _dayIndex(day);
+    final today = DateUtils.dateOnly(DateTime.now());
+    if (DateUtils.dateOnly(day).isBefore(today)) {
+      _showPastCustomTimeMessage();
+      return;
+    }
     final picked = await showTimePicker(
       context: context,
       initialTime: _perDayTimes[index] ?? _defaultTime,
     );
-    if (picked != null) setState(() => _perDayTimes[index] = picked);
+    if (picked == null || !mounted) return;
+    if (!_isReminderTimeInFuture(day, picked)) {
+      _showPastCustomTimeMessage();
+      return;
+    }
+    setState(() => _perDayTimes[index] = picked);
   }
 
-  Future<void> _editCustomDay(int index) async {
+  Future<bool> _editCustomDay(int index) async {
     final picked = await showTimePicker(
       context: context,
       initialTime: _perDayTimes[index] ?? _defaultTime,
     );
-    if (picked != null) setState(() => _perDayTimes[index] = picked);
+    if (picked == null || !mounted) return false;
+    final day = _range.start.add(Duration(days: index));
+    if (!_isReminderTimeInFuture(day, picked)) {
+      _showPastCustomTimeMessage();
+      return false;
+    }
+    setState(() => _perDayTimes[index] = picked);
+    return true;
   }
 
   void _removeCustomDay(int index) =>
@@ -159,7 +226,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-            'التذكير سيصل بوقت تقريبي. فعّلي «المنبهات والتذكيرات» لموعد دقيق.',
+            'التذكير سيصل بوقت تقريبي. فعّل «المنبهات والتذكيرات» لموعد دقيق.',
           ),
           duration: Duration(seconds: 6),
           action: SnackBarAction(
@@ -178,7 +245,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('إشعارات التطبيق متوقفة'),
         content: const Text(
-          'اسمحي للتطبيق بإرسال الإشعارات من إعدادات الجهاز، ثم فعّلي التذكير مرة أخرى.',
+          'اسمح للتطبيق بإرسال الإشعارات من إعدادات الجهاز، ثم فعّل التذكير مرة أخرى.',
         ),
         actions: [
           TextButton(
@@ -195,45 +262,6 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _testNotification() async {
-    final permissions = await NotificationService.instance
-        .checkReminderPermissions();
-    if (!permissions.notificationsAllowed) {
-      if (mounted) await _showNotificationSettingsPrompt();
-      return;
-    }
-
-    await NotificationService.instance.showTestNotification();
-    if (!mounted) return;
-
-    final message = permissions.exactAlarmsAllowed
-        ? 'لو ظهر الإشعار، فصلاحية الإشعارات تعمل. جرّبي بعدها موعد التحدي.'
-        : 'الإشعار الفوري يعمل؛ مواعيد التحديات ستصل بوقت تقريبي حتى تفعيل المنبهات الدقيقة.';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _scheduleTestNotification() async {
-    final permissions = await NotificationService.instance
-        .checkReminderPermissions();
-    if (!permissions.notificationsAllowed) {
-      if (mounted) await _showNotificationSettingsPrompt();
-      return;
-    }
-
-    final result = await NotificationService.instance
-        .scheduleTestNotificationInOneMinute();
-    if (!mounted) return;
-
-    final message = result.error != null
-        ? 'فشلت جدولة الاختبار: ${result.error}'
-        : result.exact
-        ? 'اتظبط منبه يرن بعد دقيقة حتى لو خرجتِ من التطبيق. أوقفيه من زر الإشعار.'
-        : 'اتظبط منبه بعد دقيقة بموعد تقريبي؛ قد يتأخر. أوقفي الرنين من زر الإشعار.';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _createGroup() async {
@@ -268,21 +296,92 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
     setState(() => _groupId = group.id);
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool skipMissedToday = false}) async {
     if (!_formKey.currentState!.validate()) return;
     try {
       if (!mounted) return;
 
-      final min = int.parse(_minController.text);
-      final max = _maxController.text.isEmpty
-          ? min
+      final dailyMin = int.parse(_minController.text);
+      final dailyMax = _maxController.text.isEmpty
+          ? dailyMin
           : int.parse(_maxController.text);
       final reminder = ReminderSettings(
         enabled: _reminderOn,
-        sameTimeEveryDay: _sameTimeEveryDay,
         defaultTime: _defaultTime,
         perDayTimes: Map.of(_perDayTimes),
       );
+
+      final today = DateUtils.dateOnly(DateTime.now());
+      final todayIndex = _dayIndex(today);
+      final todayIsInChallenge = todayIndex >= 0 && todayIndex < _durationDays;
+      if (_reminderOn && todayIsInChallenge && !skipMissedToday) {
+        final hasLaterDays = DateUtils.dateOnly(_range.end).isAfter(today);
+        final todayTime = reminder.timeForDay(todayIndex);
+        final todayReminder = DateTime(
+          today.year,
+          today.month,
+          today.day,
+          todayTime.hour,
+          todayTime.minute,
+        );
+        if (!todayReminder.isAfter(DateTime.now())) {
+          final choice = await showDialog<String>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('ميعاد تنبيه اليوم فات'),
+              content: Text(
+                hasLaterDays
+                    ? 'التنبيه ده مش هيرن النهارده لأن ميعاده عدى. يمكنك تغيير ميعاد اليوم فقط، أو المتابعة من غير تنبيه النهارده؛ مواعيد باقي الأيام هتفضل زي ما هي.'
+                    : 'ميعاد اليوم عدى ومفيش أيام تانية في مدة التحدي. غيّر وقت التنبيه لوقت قادم، أو أوقف التذكير.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('إلغاء'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'edit'),
+                  child: const Text('تغيير ميعاد اليوم'),
+                ),
+                if (hasLaterDays)
+                  FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, 'continue'),
+                    child: const Text('متابعة بدون تنبيه اليوم'),
+                  ),
+              ],
+            ),
+          );
+          if (!mounted) return;
+          if (choice == 'edit') {
+            if (await _editCustomDay(todayIndex) && mounted) await _save();
+            return;
+          }
+          if (choice == 'continue') {
+            await _save(skipMissedToday: true);
+          }
+          return;
+        }
+      }
+
+      final hasFutureReminder =
+          !_reminderOn ||
+          await NotificationService.instance.hasFutureReminderOccurrence(
+            startDate: _range.start,
+            endDate: _range.end,
+            reminder: reminder,
+          );
+      if (!mounted) return;
+      if (!hasFutureReminder) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'وقت التنبيه المختار فات خلال مدة التحدي. اختر وقتًا قادمًا أو غيّر التاريخ، أو أوقف التذكير.',
+            ),
+            duration: Duration(seconds: 6),
+          ),
+        );
+        return;
+      }
 
       final provider = context.read<ChallengeProvider>();
       final scheduleResult = _isEditing
@@ -290,8 +389,8 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
               widget.editing!.id,
               title: _titleController.text.trim(),
               unit: _unitController.text.trim(),
-              targetMin: min,
-              targetMax: max,
+              dailyTargetMin: dailyMin,
+              dailyTargetMax: dailyMax,
               startDate: _range.start,
               endDate: _range.end,
               reminder: reminder,
@@ -300,31 +399,21 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
           : await provider.addChallenge(
               title: _titleController.text.trim(),
               unit: _unitController.text.trim(),
-              targetMin: min,
-              targetMax: max,
+              dailyTargetMin: dailyMin,
+              dailyTargetMax: dailyMax,
               startDate: _range.start,
               endDate: _range.end,
               reminder: reminder,
               groupId: _groupId,
             );
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context);
-      if (_reminderOn) {
-        final next = scheduleResult.nextScheduledAt;
-        final nextTime = next == null
-            ? ''
-            : ' أول موعد: ${next.day}/${next.month}، '
-                  '${next.hour.toString().padLeft(2, '0')}:${next.minute.toString().padLeft(2, '0')}.';
-        final message = scheduleResult.error != null
-            ? 'حُفظ التحدي، لكن تعذرت جدولة التنبيه: ${scheduleResult.error}'
-            : scheduleResult.scheduledCount == 0
-            ? 'حُفظ التحدي، لكن لم يُجدول أي موعد مستقبلي. راجعي التاريخ والوقت.'
-            : 'اتجدول ${scheduleResult.scheduledCount} تنبيه'
-                  '${scheduleResult.exact ? ' بموعد دقيق.' : ' بوقت تقريبي.'}$nextTime';
-        messenger.showSnackBar(
+      if (_reminderOn && scheduleResult.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(message),
+            content: Text(
+              'حُفظ التحدي، لكن تعذرت جدولة التنبيه: ${scheduleResult.error}',
+            ),
             duration: const Duration(seconds: 8),
           ),
         );
@@ -335,7 +424,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'حصلت مشكلة أثناء حفظ التحدي. راجعي مساحة الجهاز وحاولي مرة أخرى.',
+            'حصلت مشكلة أثناء حفظ التحدي. راجع مساحة الجهاز وحاول مرة أخرى.',
           ),
           duration: Duration(seconds: 6),
         ),
@@ -373,6 +462,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
             const SizedBox(height: 16),
             TextFormField(
               controller: _unitController,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'وحدة قياس التحدّي',
                 hintText: 'صفحة، صلاة، يوم، دقيقة...',
@@ -383,18 +473,20 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
             const SizedBox(height: 16),
             TextFormField(
               controller: _minController,
+              onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: 'الهدف (الحد الأدنى)',
+                labelText: 'الحد الأدنى يوميًا',
               ),
               validator: _requiredNumber,
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _maxController,
+              onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: 'الحد الأقصى (اختياري)',
+                labelText: 'الحد الأقصى يوميًا (اختياري)',
               ),
               validator: (v) {
                 if (v == null || v.isEmpty) return null;
@@ -402,7 +494,7 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
                 final min = int.tryParse(_minController.text);
                 if (max == null) return 'اكتب رقمًا صحيحًا';
                 if (min != null && max < min) {
-                  return 'حدّك الأقصى عليه أن يكون أكبر من الأدنى';
+                  return 'يجب أن يكون الحد الأقصى أكبر من الحد الأدنى';
                 }
                 return null;
               },
@@ -412,6 +504,15 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
               onPressed: _pickRange,
               icon: const Icon(Icons.date_range),
               label: Text('من ${_fmt(_range.start)} إلى ${_fmt(_range.end)}'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'لمدة $_durationDays يوم: من '
+              '${_dailyMinPreview * _durationDays} إلى '
+              '${_dailyMaxPreview * _durationDays} '
+              '${_unitController.text.isEmpty ? 'وحدة' : _unitController.text}',
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: AppColors.muted),
             ),
             const SizedBox(height: 24),
             _GroupPicker(
@@ -424,10 +525,6 @@ class _AddChallengeScreenState extends State<AddChallengeScreen> {
             _ReminderSection(
               on: _reminderOn,
               onToggle: _toggleReminder,
-              onTestNotification: _testNotification,
-              onScheduleTestNotification: _scheduleTestNotification,
-              sameTimeEveryDay: _sameTimeEveryDay,
-              onSameTimeToggle: (v) => setState(() => _sameTimeEveryDay = v),
               defaultTime: _defaultTime,
               onPickDefaultTime: _pickDefaultTime,
               challengeStart: _range.start,
@@ -514,10 +611,6 @@ class _GroupPicker extends StatelessWidget {
 class _ReminderSection extends StatelessWidget {
   final bool on;
   final ValueChanged<bool> onToggle;
-  final VoidCallback onTestNotification;
-  final VoidCallback onScheduleTestNotification;
-  final bool sameTimeEveryDay;
-  final ValueChanged<bool> onSameTimeToggle;
   final TimeOfDay defaultTime;
   final VoidCallback onPickDefaultTime;
   final DateTime challengeStart;
@@ -529,10 +622,6 @@ class _ReminderSection extends StatelessWidget {
   const _ReminderSection({
     required this.on,
     required this.onToggle,
-    required this.onTestNotification,
-    required this.onScheduleTestNotification,
-    required this.sameTimeEveryDay,
-    required this.onSameTimeToggle,
     required this.defaultTime,
     required this.onPickDefaultTime,
     required this.challengeStart,
@@ -569,85 +658,61 @@ class _ReminderSection extends StatelessWidget {
           ),
           if (on) ...[
             const Divider(height: 24),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('مطابقة الوقت دائمًا'),
-              value: sameTimeEveryDay,
-              onChanged: onSameTimeToggle,
-            ),
-            const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: onPickDefaultTime,
               icon: const Icon(Icons.access_time),
-              label: Text(
-                sameTimeEveryDay
-                    ? 'وقت التنبيه: ${_fmtTime(context, defaultTime)}'
-                    : 'الوقت الافتراضي لباقي الأيام: '
-                          '${_fmtTime(context, defaultTime)}',
-              ),
+              label: Text('الوقت اليومي: ${_fmtTime(context, defaultTime)}'),
             ),
             const SizedBox(height: 8),
-            TextButton.icon(
-              onPressed: onTestNotification,
-              icon: const Icon(Icons.notifications_active_outlined),
-              label: const Text('إرسال إشعار تجريبي الآن'),
+            const SizedBox(height: 8),
+            Text(
+              'الوقت ده يتكرر كل يوم، ويمكنك اختيار أيام معينة بوقت مختلف.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
-            TextButton.icon(
-              onPressed: onScheduleTestNotification,
-              icon: const Icon(Icons.alarm_add_outlined),
-              label: const Text('اختبار موعد بعد دقيقة'),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: onAddCustomDay,
+              icon: const Icon(Icons.event_available),
+              label: const Text('تخصيص وقت ليوم معين'),
             ),
-            if (!sameTimeEveryDay) ...[
-              const SizedBox(height: 16),
-              Text(
-                'تحتاج وقتًا آخر ليوم معين ؟ خصّص له وقتًا مختلفًا',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: onAddCustomDay,
-                icon: const Icon(Icons.event_available),
-                label: const Text('تخصيص وقت ليوم معين'),
-              ),
-              if (customDays.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ...customDays.map((index) {
-                  final date = challengeStart.add(Duration(days: index));
-                  final time = perDayTimes[index]!;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: AppColors.muted.withValues(alpha: 0.3),
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${_fmtDate(date)} — ${_fmtTime(context, time)}',
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                            onPressed: () => onEditCustomDay(index),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () => onRemoveCustomDay(index),
-                          ),
-                        ],
-                      ),
+            if (customDays.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ...customDays.map((index) {
+                final date = challengeStart.add(Duration(days: index));
+                final time = perDayTimes[index]!;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
                     ),
-                  );
-                }),
-              ],
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: AppColors.muted.withValues(alpha: 0.3),
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${_fmtDate(date)} — ${_fmtTime(context, time)}',
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          onPressed: () => onEditCustomDay(index),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () => onRemoveCustomDay(index),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
             ],
           ],
         ],

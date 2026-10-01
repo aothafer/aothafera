@@ -2,7 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart' show TimeOfDay;
 
-/// تسجيل واحد للتقدم: كام وحدة عملتي في يوم معين
+/// تسجيل واحد للتقدم: عدد الوحدات المنجزة في يوم معين
 class LogEntry {
   final DateTime date;
   final int amount;
@@ -24,9 +24,6 @@ class LogEntry {
 class ReminderSettings {
   final bool enabled;
 
-  /// لو true: كل أيام التحدي بتاخد وقت واحد (defaultTime).
-  /// لو false: كل يوم له وقته الخاص في perDayTimes.
-  final bool sameTimeEveryDay;
   final TimeOfDay defaultTime;
 
   /// وقت مخصص لكل يوم من أيام التحدي (المفتاح: رقم اليوم بداية من 0)
@@ -34,14 +31,12 @@ class ReminderSettings {
 
   const ReminderSettings({
     this.enabled = false,
-    this.sameTimeEveryDay = true,
     this.defaultTime = const TimeOfDay(hour: 20, minute: 0),
     this.perDayTimes = const {},
   });
 
   Map<String, dynamic> toJson() => {
     'enabled': enabled,
-    'sameTimeEveryDay': sameTimeEveryDay,
     'defaultHour': defaultTime.hour,
     'defaultMinute': defaultTime.minute,
     'perDayTimes': perDayTimes.map(
@@ -50,6 +45,7 @@ class ReminderSettings {
   };
 
   factory ReminderSettings.fromJson(Map<String, dynamic> json) {
+    final legacySameTime = json['sameTimeEveryDay'] as bool?;
     final times = (json['perDayTimes'] as Map<String, dynamic>? ?? {}).map((
       day,
       value,
@@ -62,24 +58,23 @@ class ReminderSettings {
     });
     return ReminderSettings(
       enabled: json['enabled'] as bool? ?? false,
-      sameTimeEveryDay: json['sameTimeEveryDay'] as bool? ?? true,
       defaultTime: TimeOfDay(
         hour: json['defaultHour'] as int? ?? 20,
         minute: json['defaultMinute'] as int? ?? 0,
       ),
-      perDayTimes: times,
+      // Old versions retained hidden overrides after "same time every day"
+      // was enabled. Do not unexpectedly activate those stale exceptions.
+      perDayTimes: legacySameTime == true ? const <int, TimeOfDay>{} : times,
     );
   }
 
   ReminderSettings copyWith({
     bool? enabled,
-    bool? sameTimeEveryDay,
     TimeOfDay? defaultTime,
     Map<int, TimeOfDay>? perDayTimes,
   }) {
     return ReminderSettings(
       enabled: enabled ?? this.enabled,
-      sameTimeEveryDay: sameTimeEveryDay ?? this.sameTimeEveryDay,
       defaultTime: defaultTime ?? this.defaultTime,
       perDayTimes: perDayTimes ?? this.perDayTimes,
     );
@@ -87,7 +82,7 @@ class ReminderSettings {
 
   /// وقت التنبيه ليوم معين (رقم اليوم بداية من 0)
   TimeOfDay timeForDay(int dayIndex) {
-    if (sameTimeEveryDay) return defaultTime;
+    // The default is used every day; a per-day entry is an explicit override.
     return perDayTimes[dayIndex] ?? defaultTime;
   }
 }
@@ -103,10 +98,13 @@ class Challenge {
   String unit; // صفحة، صلاة، دقيقة...
   int targetMin;
   int targetMax;
+  int dailyTargetMin;
+  int dailyTargetMax;
   DateTime startDate;
   DateTime endDate;
   final int colorIndex; // بيحدد لون التحدي من لوحة الألوان
   ReminderSettings reminder;
+  bool manuallyCompleted;
 
   /// معرّف المجموعة اللي التحدي منضم لها، أو null لو تحدٍ منفرد
   String? groupId;
@@ -119,10 +117,13 @@ class Challenge {
     required this.unit,
     required this.targetMin,
     required this.targetMax,
+    required this.dailyTargetMin,
+    required this.dailyTargetMax,
     required this.startDate,
     required this.endDate,
     required this.colorIndex,
     this.reminder = const ReminderSettings(),
+    this.manuallyCompleted = false,
     this.groupId,
   });
 
@@ -132,27 +133,54 @@ class Challenge {
     'unit': unit,
     'targetMin': targetMin,
     'targetMax': targetMax,
+    'dailyTargetMin': dailyTargetMin,
+    'dailyTargetMax': dailyTargetMax,
     'startDate': startDate.toIso8601String(),
     'endDate': endDate.toIso8601String(),
     'colorIndex': colorIndex,
     'reminder': reminder.toJson(),
+    'manuallyCompleted': manuallyCompleted,
     'groupId': groupId,
     'logs': logs.map((log) => log.toJson()).toList(),
   };
 
   factory Challenge.fromJson(Map<String, dynamic> json) {
+    final startDate = DateTime.parse(json['startDate'] as String);
+    final endDate = DateTime.parse(json['endDate'] as String);
+    final days = max(
+      1,
+      DateTime(endDate.year, endDate.month, endDate.day)
+              .difference(
+                DateTime(startDate.year, startDate.month, startDate.day),
+              )
+              .inDays +
+          1,
+    );
+    final targetMin = json['targetMin'] as int;
+    final targetMax = json['targetMax'] as int;
+    final oldUnit = (json['unit'] as String).trim().toLowerCase();
+    final isLegacyReadingDailyGoal =
+        !json.containsKey('dailyTargetMin') &&
+        days >= 7 &&
+        targetMax <= 100 &&
+        const {'صفحة', 'صفحات', 'page', 'pages'}.contains(oldUnit);
     final challenge = Challenge(
       id: json['id'] as String,
       title: json['title'] as String,
       unit: json['unit'] as String,
-      targetMin: json['targetMin'] as int,
-      targetMax: json['targetMax'] as int,
-      startDate: DateTime.parse(json['startDate'] as String),
-      endDate: DateTime.parse(json['endDate'] as String),
+      targetMin: targetMin,
+      targetMax: targetMax,
+      dailyTargetMin:
+          json['dailyTargetMin'] as int? ?? (targetMin / days).ceil(),
+      dailyTargetMax:
+          json['dailyTargetMax'] as int? ?? (targetMax / days).ceil(),
+      startDate: startDate,
+      endDate: endDate,
       colorIndex: json['colorIndex'] as int,
       reminder: ReminderSettings.fromJson(
         json['reminder'] as Map<String, dynamic>,
       ),
+      manuallyCompleted: json['manuallyCompleted'] as bool? ?? false,
       groupId: json['groupId'] as String?,
     );
     challenge.logs.addAll(
@@ -160,6 +188,17 @@ class Challenge {
         (entry) => LogEntry.fromJson(entry as Map<String, dynamic>),
       ),
     );
+    if (isLegacyReadingDailyGoal) {
+      // Earlier builds accepted numbers like 25–50 without clarifying that
+      // users meant pages per day. Convert those old reading goals into totals
+      // so a 50-page daily log cannot complete a month-long challenge.
+      challenge
+        ..dailyTargetMin = targetMin
+        ..dailyTargetMax = targetMax
+        ..targetMin = targetMin * days
+        ..targetMax = targetMax * days
+        ..manuallyCompleted = false;
+    }
     return challenge;
   }
 
@@ -168,7 +207,7 @@ class Challenge {
   int get remaining => max(0, targetMin - totalDone);
 
   double get progress =>
-      targetMin == 0 ? 0.0 : (totalDone / targetMin).clamp(0.0, 1.0).toDouble();
+      targetMax == 0 ? 0.0 : (totalDone / targetMax).clamp(0.0, 1.0).toDouble();
 
   /// إجمالي أيام التحدي من أوله لآخره (شامل يوم البداية والنهاية)
   int get totalDays {
@@ -198,14 +237,22 @@ class Challenge {
   int get neededPerDay =>
       daysLeft == 0 ? remaining : (remaining / daysLeft).ceil();
 
-  /// متوسط اللي بتسجليه يوميًا من بداية التحدي لحد دلوقتي
+  /// متوسط ما تسجله يوميًا من بداية التحدي حتى الآن
   double get averagePerDay => daysElapsed == 0 ? 0.0 : totalDone / daysElapsed;
 
-  /// الحالة: مكتمل لو وصل للحد الأدنى، فشل لو خلصت مدته من غير ما يوصل،
-  /// وإلا فهو لا يزال نشطًا.
+  /// الحد الأقصى ينهي التحدي تلقائيًا. الحد الأدنى وحده يسمح بإنهائه يدويًا
+  /// مبكرًا، أو يعتبر إنجازًا عند انتهاء المدة.
   ChallengeStatus get status {
-    if (remaining == 0) return ChallengeStatus.completed;
-    if (daysLeft == 0) return ChallengeStatus.failed;
+    if (totalDone >= targetMax || manuallyCompleted) {
+      return ChallengeStatus.completed;
+    }
+    final now = DateTime.now();
+    final endExclusive = DateTime(endDate.year, endDate.month, endDate.day + 1);
+    if (!now.isBefore(endExclusive)) {
+      return totalDone >= targetMin
+          ? ChallengeStatus.completed
+          : ChallengeStatus.failed;
+    }
     return ChallengeStatus.active;
   }
 }

@@ -9,10 +9,38 @@ import 'models.dart';
 import 'statistics_screen.dart';
 import 'theme.dart';
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  final String? initialChallengeId;
 
-  Future<void> _logProgress(BuildContext context, Challenge c) async {
+  const HomeScreen({super.key, this.initialChallengeId});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final challengeId = widget.initialChallengeId;
+    if (challengeId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _logProgress(context, challengeId, fromReminder: true);
+        }
+      });
+    }
+  }
+
+  Future<void> _logProgress(
+    BuildContext context,
+    String challengeId, {
+    bool fromReminder = false,
+  }) async {
+    final provider = context.read<ChallengeProvider>();
+    final matching = provider.challenges.where((c) => c.id == challengeId);
+    if (matching.isEmpty) return;
+    final c = matching.first;
     String input = '';
     final amount = await showDialog<int>(
       context: context,
@@ -22,7 +50,9 @@ class HomeScreen extends StatelessWidget {
         content: TextField(
           autofocus: true,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: 'ماذا غنمت من ${c.unit} اليوم؟'),
+          decoration: InputDecoration(
+            labelText: 'كم أنجزت من ${c.unit} اليوم؟',
+          ),
           onChanged: (value) => input = value,
         ),
         actions: [
@@ -38,9 +68,135 @@ class HomeScreen extends StatelessWidget {
       ),
     );
 
-    if (amount != null && amount > 0 && context.mounted) {
-      context.read<ChallengeProvider>().addLog(c.id, amount);
+    if (amount == null || !context.mounted) return;
+
+    if (fromReminder) {
+      final today = DateUtils.dateOnly(DateTime.now());
+      final loggedToday = c.logs
+          .where((log) => DateUtils.isSameDay(log.date, today))
+          .fold<int>(0, (total, log) => total + log.amount);
+      final minimumToday = (c.dailyTargetMin * 20 + 99) ~/ 100;
+      if (loggedToday + amount < minimumToday) {
+        final scheduleAgain = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('الإنجاز أقل من المطلوب'),
+            content: Text(
+              'إجمالي ما أنجزته اليوم أقل من 20٪ من الحد الأدنى اليومي. '
+              'أنجز $minimumToday ${c.unit} على الأقل اليوم. '
+              'لم يُحفظ هذا الإدخال. اضبط تنبيهًا آخر لوقت قادم، ثم أكمل وسجّل إنجازك.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('ضبط تنبيه آخر'),
+              ),
+            ],
+          ),
+        );
+        if (scheduleAgain == true && context.mounted) {
+          await _rescheduleTodaysReminder(context, c);
+        }
+        return;
+      }
     }
+
+    if (amount > 0 && context.mounted) {
+      await provider.addLog(c.id, amount);
+      final updated = provider.challenges.firstWhere((item) => item.id == c.id);
+      if (updated.status == ChallengeStatus.active &&
+          updated.totalDone >= updated.targetMin &&
+          updated.totalDone < updated.targetMax &&
+          context.mounted) {
+        final finishNow = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('وصلت إلى الحد الأدنى'),
+            content: const Text(
+              'يمكنك إكمال التحدي حتى موعده، أو إنهاؤه الآن ونقله إلى التحديات المنتهية. هل تريد إنهاءه؟',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('أكمل التحدي'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('إنهاء الآن'),
+              ),
+            ],
+          ),
+        );
+        if (finishNow == true && context.mounted) {
+          await provider.finishChallenge(c.id);
+        }
+      }
+    }
+  }
+
+  Future<void> _rescheduleTodaysReminder(
+    BuildContext context,
+    Challenge challenge,
+  ) async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final start = DateUtils.dateOnly(challenge.startDate);
+    final end = DateUtils.dateOnly(challenge.endDate);
+    if (today.isBefore(start) || today.isAfter(end)) return;
+
+    final dayIndex = today.difference(start).inDays;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: challenge.reminder.timeForDay(dayIndex),
+    );
+    if (picked == null || !context.mounted) return;
+
+    final scheduledAt = DateTime(
+      today.year,
+      today.month,
+      today.day,
+      picked.hour,
+      picked.minute,
+    );
+    if (!scheduledAt.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('اختر وقتًا قادمًا اليوم للتنبيه الجديد.'),
+        ),
+      );
+      return;
+    }
+
+    final perDayTimes = Map<int, TimeOfDay>.of(challenge.reminder.perDayTimes)
+      ..[dayIndex] = picked;
+    final result = await context.read<ChallengeProvider>().updateChallenge(
+      challenge.id,
+      title: challenge.title,
+      unit: challenge.unit,
+      dailyTargetMin: challenge.dailyTargetMin,
+      dailyTargetMax: challenge.dailyTargetMax,
+      startDate: challenge.startDate,
+      endDate: challenge.endDate,
+      reminder: challenge.reminder.copyWith(perDayTimes: perDayTimes),
+      groupId: challenge.groupId,
+    );
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.error == null
+              ? 'تم ضبط تنبيه جديد لليوم الساعة ${picked.format(context)}.'
+              : 'تعذر ضبط التنبيه الجديد: ${result.error}',
+        ),
+        duration: const Duration(seconds: 6),
+      ),
+    );
   }
 
   @override
@@ -70,7 +226,10 @@ class HomeScreen extends StatelessWidget {
                       for (final c in challenges)
                         _ChallengeCard(
                           challenge: c,
-                          onLog: () => _logProgress(context, c),
+                          onLog: () => _logProgress(context, c.id),
+                          onFinish: () => context
+                              .read<ChallengeProvider>()
+                              .finishChallenge(c.id),
                           onDelete: () => context
                               .read<ChallengeProvider>()
                               .removeChallenge(c.id),
@@ -112,10 +271,7 @@ class _HeaderBanner extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    AppColors.bg,
-                    AppColors.bg.withValues(alpha: 0),
-                  ],
+                  colors: [AppColors.bg, AppColors.bg.withValues(alpha: 0)],
                 ),
               ),
             ),
@@ -130,10 +286,7 @@ class _HeaderBanner extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    AppColors.bg.withValues(alpha: 0),
-                    AppColors.bg,
-                  ],
+                  colors: [AppColors.bg.withValues(alpha: 0), AppColors.bg],
                 ),
               ),
             ),
@@ -181,11 +334,13 @@ class _HeaderBanner extends StatelessWidget {
 class _ChallengeCard extends StatelessWidget {
   final Challenge challenge;
   final VoidCallback onLog;
+  final VoidCallback onFinish;
   final VoidCallback onDelete;
 
   const _ChallengeCard({
     required this.challenge,
     required this.onLog,
+    required this.onFinish,
     required this.onDelete,
   });
 
@@ -194,8 +349,8 @@ class _ChallengeCard extends StatelessWidget {
     final c = challenge;
     final textTheme = Theme.of(context).textTheme;
     final failed = c.status == ChallengeStatus.failed;
-    final own = AppColors.challengeColors[
-        c.colorIndex % AppColors.challengeColors.length];
+    final own = AppColors
+        .challengeColors[c.colorIndex % AppColors.challengeColors.length];
     final accent = failed ? AppColors.rose : own;
 
     return Material(
@@ -224,23 +379,29 @@ class _ChallengeCard extends StatelessWidget {
                         Text(c.title, style: textTheme.titleLarge),
                         const SizedBox(height: 2),
                         Text(
-                          '${c.totalDone} / ${c.targetMin} ${c.unit}',
+                          '${c.totalDone} / ${c.targetMax} ${c.unit}',
                           style: textTheme.titleMedium?.copyWith(color: accent),
                         ),
-                        if (c.targetMax > c.targetMin)
-                          Text(
-                            'الحد الأقصى ${c.targetMax}',
-                            style: textTheme.bodySmall
-                                ?.copyWith(color: AppColors.muted),
+                        Text(
+                          'الحد الأدنى الكلي ${c.targetMin} ${c.unit} · '
+                          '${c.dailyTargetMin}–${c.dailyTargetMax} يوميًا',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: AppColors.muted,
                           ),
+                        ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_left,
-                      color: AppColors.muted, size: 18),
+                  const Icon(
+                    Icons.chevron_left,
+                    color: AppColors.muted,
+                    size: 18,
+                  ),
                   IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        color: AppColors.muted),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: AppColors.muted,
+                    ),
                     onPressed: onDelete,
                   ),
                 ],
@@ -286,6 +447,17 @@ class _ChallengeCard extends StatelessWidget {
                   label: const Text('سجّل تقدمك'),
                 ),
               ),
+              if (c.totalDone >= c.targetMin && c.totalDone < c.targetMax) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: onFinish,
+                    icon: const Icon(Icons.flag_outlined),
+                    label: const Text('إنهاء التحدي الآن'),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -393,9 +565,9 @@ class _AppDrawer extends StatelessWidget {
 
   void _comingSoon(BuildContext context) {
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('سيُتاح هذا في مرحلة قادمة')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('سيُتاح هذا في مرحلة قادمة')));
   }
 
   void _openScreen(BuildContext context, Widget screen) {
@@ -412,12 +584,11 @@ class _AppDrawer extends StatelessWidget {
       String label, {
       Color? color,
       VoidCallback? onTap,
-    }) =>
-        ListTile(
-          leading: Icon(icon, color: color ?? AppColors.cream),
-          title: Text(label, style: TextStyle(color: color)),
-          onTap: onTap ?? () => _comingSoon(context),
-        );
+    }) => ListTile(
+      leading: Icon(icon, color: color ?? AppColors.cream),
+      title: Text(label, style: TextStyle(color: color)),
+      onTap: onTap ?? () => _comingSoon(context),
+    );
 
     return Drawer(
       backgroundColor: AppColors.surface,
@@ -438,15 +609,18 @@ class _AppDrawer extends StatelessWidget {
             ),
             item(
               Icons.emoji_events_outlined,
-              'التحديات المُنجزة',
+              'التحديات المنتهية',
               onTap: () =>
                   _openScreen(context, const CompletedChallengesScreen()),
             ),
             const Spacer(),
             const Divider(),
             item(Icons.logout, 'تسجيل الخروج'),
-            item(Icons.delete_forever_outlined, 'مسح الحساب',
-                color: AppColors.terracotta),
+            item(
+              Icons.delete_forever_outlined,
+              'مسح الحساب',
+              color: AppColors.terracotta,
+            ),
           ],
         ),
       ),

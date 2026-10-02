@@ -183,6 +183,10 @@ class ChallengeProvider extends ChangeNotifier {
     await _persist();
     if (challenge.status != ChallengeStatus.active) {
       await NotificationService.instance.cancelForChallenge(challenge);
+    } else if (challenge.reminder.enabled) {
+      // Recalculate the remaining daily range and replace future alarm/nudge
+      // schedules using the newly logged progress.
+      await NotificationService.instance.scheduleForChallenge(challenge);
     }
   }
 

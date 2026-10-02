@@ -77,32 +77,44 @@ class _HomeScreenState extends State<HomeScreen> {
           .fold<int>(0, (total, log) => total + log.amount);
       final minimumToday = c.minimumDailyCheckIn;
       if (loggedToday + amount < minimumToday) {
-        final scheduleAgain = await showDialog<bool>(
+        final projectedMin = _projectedDailyRequirement(
+          c,
+          progressAfterToday: c.totalDone + amount,
+          maximum: false,
+        );
+        final projectedMax = _projectedDailyRequirement(
+          c,
+          progressAfterToday: c.totalDone + amount,
+          maximum: true,
+        );
+        final choice = await showDialog<int>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             backgroundColor: AppColors.surface,
-            title: const Text('الإنجاز أقل من المطلوب'),
+            title: const Text('إنجاز اليوم أقل من 20٪'),
             content: Text(
-              'إجمالي ما أنجزته اليوم أقل من 20٪ من الحد الأدنى اليومي. '
-              'أنجز $minimumToday ${c.unit} على الأقل اليوم. '
-              'لم يُحفظ هذا الإدخال. اضبط تنبيهًا آخر لوقت قادم، ثم أكمل وسجّل إنجازك.',
+              'إجمالي إنجازك اليوم أقل من $minimumToday ${c.unit}، وهو 20٪ من الحد الأدنى المطلوب اليوم. '
+              'لو اعتمدنا هذا التقدم، سيصبح متوسط ما تحتاج لإنجازه في الأيام المتبقية '
+              '$projectedMin–$projectedMax ${c.unit} يوميًا. '
+              'التسويف قد يراكم المطلوب ويصعّب الوصول لهدفك.',
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('إلغاء'),
+                onPressed: () => Navigator.pop(dialogContext, 1),
+                child: const Text('أكمل ثم اضبط تنبيهًا آخر'),
               ),
               FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('ضبط تنبيه آخر'),
+                onPressed: () => Navigator.pop(dialogContext, 2),
+                child: const Text('سجّل التقدم كما هو'),
               ),
             ],
           ),
         );
-        if (scheduleAgain == true && context.mounted) {
+        if (choice == 1 && context.mounted) {
           await _rescheduleTodaysReminder(context, c);
+          return;
         }
-        return;
+        if (choice != 2) return;
       }
     }
 
@@ -138,6 +150,21 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
+  }
+
+  int _projectedDailyRequirement(
+    Challenge challenge, {
+    required int progressAfterToday,
+    required bool maximum,
+  }) {
+    final target = maximum ? challenge.targetMax : challenge.targetMin;
+    final remaining = (target - progressAfterToday).clamp(0, target);
+    final daysAfterToday = (challenge.daysLeft - 1).clamp(
+      0,
+      challenge.totalDays,
+    );
+    if (daysAfterToday == 0) return remaining;
+    return (remaining / daysAfterToday).ceil();
   }
 
   Future<void> _rescheduleTodaysReminder(
@@ -384,7 +411,7 @@ class _ChallengeCard extends StatelessWidget {
                         ),
                         Text(
                           'الحد الأدنى الكلي ${c.targetMin} ${c.unit} · '
-                          '${c.dailyTargetMin}–${c.dailyTargetMax} يوميًا',
+                          '${c.neededPerDay}–${c.neededMaxPerDay} يوميًا حاليًا',
                           style: textTheme.bodySmall?.copyWith(
                             color: AppColors.muted,
                           ),
@@ -429,7 +456,7 @@ class _ChallengeCard extends StatelessWidget {
                           _InfoChip(
                             icon: Icons.trending_up,
                             text:
-                                'متوسط بلوغ الحد الأدنى: ${c.neededPerDay} ${c.unit} يوميًا',
+                                'المتوسط اليومي الجديد: ${c.neededPerDay}–${c.neededMaxPerDay} ${c.unit}',
                             color: accent,
                           ),
                         ],
@@ -602,7 +629,6 @@ class _AppDrawer extends StatelessWidget {
               child: Text('عُذافِرة', style: textTheme.headlineMedium),
             ),
             const Divider(),
-            item(Icons.person_outline, 'حسابي'),
             item(
               Icons.bar_chart,
               'إحصائياتي',
@@ -615,13 +641,6 @@ class _AppDrawer extends StatelessWidget {
                   _openScreen(context, const CompletedChallengesScreen()),
             ),
             const Spacer(),
-            const Divider(),
-            item(Icons.logout, 'تسجيل الخروج'),
-            item(
-              Icons.delete_forever_outlined,
-              'مسح الحساب',
-              color: AppColors.terracotta,
-            ),
           ],
         ),
       ),

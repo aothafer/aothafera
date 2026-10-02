@@ -149,16 +149,19 @@ class NotificationService {
     return base * 10000 + dayIndex;
   }
 
+  int _nudgeIdFor(String challengeId, int dayIndex) =>
+      (_idFor(challengeId, dayIndex) ^ 0x40000000) & 0x7fffffff;
+
   /// بيحذف كل التنبيهات المجدولة لتحدي معين.
   Future<void> cancelForChallenge(Challenge c) async {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       await _settingsChannel.invokeMethod<void>('cancelChallengeAlarms', {
         'challengeId': c.id,
       });
-      return;
     }
     for (var i = 0; i < c.totalDays; i++) {
       await _plugin.cancel(_idFor(c.id, i));
+      await _plugin.cancel(_nudgeIdFor(c.id, i));
     }
   }
 
@@ -226,19 +229,50 @@ class NotificationService {
           time.minute,
         );
 
+        final id = _idFor(c.id, day);
+        final nudgeId = _nudgeIdFor(c.id, day);
+        // Replacing a challenge schedule must also remove yesterday's pending
+        // follow-up nudges, including when the day's alarm already passed.
+        await _plugin.cancel(nudgeId);
         if (!scheduled.isAfter(now)) continue;
 
-        final id = _idFor(c.id, day);
+        final (dailyMin, dailyMax) = _dailyRangeForDate(c, date);
+        final body =
+            'المتوسط المطلوب الآن $dailyMin–$dailyMax ${c.unit} يوميًا. '
+            'التسويف قد يراكم المطلوب ويبعدك عن هدفك.';
         final scheduledExactly =
             !kIsWeb && defaultTargetPlatform == TargetPlatform.android
             ? await _scheduleNativeAlarm(
                 id: id,
                 scheduledAt: scheduled,
                 title: 'وقت "${c.title}"',
-                body: 'سجّل تقدمك في ${c.unit} اليوم',
+                body: body,
                 challengeId: c.id,
               )
             : await _schedulePluginNotification(id, c, scheduled, exact);
+        final nudgeAt = scheduled.add(const Duration(minutes: 45));
+        final endOfDay = tz.TZDateTime(
+          tz.local,
+          date.year,
+          date.month,
+          date.day,
+          23,
+          45,
+        );
+        final nudgeTime = nudgeAt.isAfter(endOfDay) ? endOfDay : nudgeAt;
+        if (nudgeTime.isAfter(now) && nudgeTime.isAfter(scheduled)) {
+          await _plugin.zonedSchedule(
+            nudgeId,
+            'تذكير بتقدم "${c.title}"',
+            _missedNudgeBody(c, date),
+            nudgeTime,
+            _nudgeNotificationDetails,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            payload: c.id,
+          );
+        }
         exact = exact && scheduledExactly;
         scheduledCount++;
         nextScheduledAt ??= scheduled;
@@ -258,6 +292,71 @@ class NotificationService {
         error: 'تعذرت جدولة المنبه. راجع أذونات الإشعارات والمنبهات الدقيقة.',
       );
     }
+  }
+
+  (int, int) _dailyRangeForDate(Challenge challenge, DateTime date) {
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    final end = DateTime(
+      challenge.endDate.year,
+      challenge.endDate.month,
+      challenge.endDate.day,
+    );
+    final days = (end.difference(dateOnly).inDays + 1).clamp(
+      1,
+      challenge.totalDays,
+    );
+    final completedBefore = challenge.logs
+        .where(
+          (log) => log.date.isBefore(dateOnly.add(const Duration(days: 1))),
+        )
+        .fold<int>(0, (sum, log) => sum + log.amount);
+    final minRemaining = (challenge.targetMin - completedBefore).clamp(
+      0,
+      challenge.targetMin,
+    );
+    final maxRemaining = (challenge.targetMax - completedBefore).clamp(
+      0,
+      challenge.targetMax,
+    );
+    return ((minRemaining / days).ceil(), (maxRemaining / days).ceil());
+  }
+
+  String _missedNudgeBody(Challenge challenge, DateTime alarmDate) {
+    final tomorrow = DateTime(
+      alarmDate.year,
+      alarmDate.month,
+      alarmDate.day + 1,
+    );
+    final end = DateTime(
+      challenge.endDate.year,
+      challenge.endDate.month,
+      challenge.endDate.day,
+    );
+    final remainingDays = end.difference(tomorrow).inDays + 1;
+    final completedBefore = challenge.logs
+        .where(
+          (log) => log.date.isBefore(
+            DateTime(alarmDate.year, alarmDate.month, alarmDate.day),
+          ),
+        )
+        .fold<int>(0, (sum, log) => sum + log.amount);
+    final minRemaining = (challenge.targetMin - completedBefore).clamp(
+      0,
+      challenge.targetMin,
+    );
+    final maxRemaining = (challenge.targetMax - completedBefore).clamp(
+      0,
+      challenge.targetMax,
+    );
+    final minTomorrow = remainingDays <= 0
+        ? minRemaining
+        : (minRemaining / remainingDays).ceil();
+    final maxTomorrow = remainingDays <= 0
+        ? maxRemaining
+        : (maxRemaining / remainingDays).ceil();
+    return 'لم تسجّل تقدمك اليوم. إذا مرّ اليوم دون إنجاز، سيصبح متوسط الغد '
+        '$minTomorrow–$maxTomorrow ${challenge.unit} يوميًا. التسويف قد يراكم المطلوب؛ '
+        'افتح التطبيق وسجّل تقدمك.';
   }
 
   Future<bool> _scheduleNativeAlarm({
@@ -308,15 +407,30 @@ class NotificationService {
         android: AndroidNotificationDetails(
           // تغيير المعرّف ينشئ قناة جديدة على الأجهزة التي أنشأت القناة
           // القديمة بإعداداتها الافتراضية.
-          'challenge_alarm_reminders_v2',
+          'challenge_alarm_reminders_v3',
           'منبهات التحديات',
           channelDescription: 'منبه بموعد تسجيل تقدمك في التحدي',
           importance: Importance.max,
           priority: Priority.max,
           category: AndroidNotificationCategory.alarm,
           audioAttributesUsage: AudioAttributesUsage.alarm,
+          icon: 'ic_stat_logo',
           playSound: true,
           enableVibration: true,
+        ),
+      );
+
+  NotificationDetails get _nudgeNotificationDetails =>
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'challenge_progress_nudges_v1',
+          'تذكير بالتقدم',
+          channelDescription: 'تذكير هادئ إذا لم يُسجل تقدم بعد المنبه',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+          icon: 'ic_stat_logo',
+          playSound: false,
+          enableVibration: false,
         ),
       );
 }

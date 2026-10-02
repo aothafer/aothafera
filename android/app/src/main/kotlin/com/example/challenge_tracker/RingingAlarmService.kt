@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.graphics.BitmapFactory
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
@@ -79,7 +80,8 @@ class RingingAlarmService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_stat_logo)
+            .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher))
             .setContentTitle(title)
             .setContentText(body)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -118,7 +120,8 @@ class RingingAlarmService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(this, FOLLOW_UP_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_stat_logo)
+            .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher))
             .setContentTitle(title)
             .setContentText(body)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)

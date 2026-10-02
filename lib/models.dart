@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:flutter/material.dart' show DateUtils, TimeOfDay;
 
 /// تسجيل واحد للتقدم: عدد الوحدات المنجزة في يوم معين
 class LogEntry {
@@ -233,12 +233,23 @@ class Challenge {
     return max(0, end.difference(today).inDays + 1);
   }
 
+  int get planningDaysLeft {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final start = DateUtils.dateOnly(startDate);
+    return today.isBefore(start) ? totalDays : daysLeft;
+  }
+
   /// المطلوب يوميًا عشان توصلي للحد الأدنى
   int get neededPerDay =>
-      daysLeft == 0 ? remaining : (remaining / daysLeft).ceil();
+      planningDaysLeft == 0 ? remaining : (remaining / planningDaysLeft).ceil();
 
-  /// الحد الأدنى المقبول لتسجيل إنجاز يوم التنبيه: 20٪ من الحد الأدنى اليومي.
-  int get minimumDailyCheckIn => (dailyTargetMin * 20 + 99) ~/ 100;
+  /// المتوسط اليومي المتبقي للوصول إلى الحد الأقصى، ويتحدث مع كل يوم/إنجاز.
+  int get neededMaxPerDay => planningDaysLeft == 0
+      ? max(0, targetMax - totalDone)
+      : (max(0, targetMax - totalDone) / planningDaysLeft).ceil();
+
+  /// حد تسجيل إنجاز التنبيه: 20٪ من الحد الأدنى المطلوب حاليًا في اليوم.
+  int get minimumDailyCheckIn => (neededPerDay * 20 + 99) ~/ 100;
 
   /// متوسط ما تسجله يوميًا من بداية التحدي حتى الآن
   double get averagePerDay => daysElapsed == 0 ? 0.0 : totalDone / daysElapsed;

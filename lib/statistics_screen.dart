@@ -22,27 +22,40 @@ class StatisticsScreen extends StatelessWidget {
     final ungrouped = provider.challenges
         .where((c) => c.groupId == null)
         .toList();
-    if (groups.isEmpty && ungrouped.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('الإحصائيات')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Text(
-              'لا توجد بيانات كافية بعد، ابدأ بإنشاء تحدٍ لترى إحصائياتك',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: AppColors.muted),
-            ),
-          ),
-        ),
-      );
-    }
+    final previewChallenge = _buildPreviewChallenge();
     return Scaffold(
       appBar: AppBar(title: const Text('الإحصائيات')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Card(
+            color: AppColors.surface,
+            child: ListTile(
+              leading: const Icon(
+                Icons.candlestick_chart,
+                color: AppColors.mustard,
+              ),
+              title: const Text('معاينة الرسم البياني'),
+              subtitle: const Text('بيانات تجريبية لـ30 يومًا — لا تُحفظ'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => showChallengeDetail(
+                context,
+                previewChallenge,
+                AppColors.mustard,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (groups.isEmpty && ungrouped.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 36),
+              child: Text(
+                'لا توجد بيانات تحديات بعد. ابدأ بإنشاء تحدٍ لترى إحصائياتك.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: AppColors.muted),
+              ),
+            ),
           if (groups.isNotEmpty) ...[
             Text('المجموعات', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
@@ -84,6 +97,65 @@ class StatisticsScreen extends StatelessWidget {
     if (maxTarget == 0) return 0;
     final done = challenges.fold<int>(0, (sum, c) => sum + c.totalDone);
     return (done * 100 / maxTarget).round();
+  }
+
+  Challenge _buildPreviewChallenge() {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final start = today.subtract(const Duration(days: 29));
+    const amounts = <int>[
+      12,
+      24,
+      31,
+      18,
+      42,
+      0,
+      27,
+      35,
+      48,
+      22,
+      0,
+      39,
+      44,
+      29,
+      51,
+      33,
+      17,
+      0,
+      46,
+      38,
+      55,
+      26,
+      41,
+      19,
+      0,
+      49,
+      36,
+      58,
+      32,
+      45,
+    ];
+    final challenge = Challenge(
+      id: 'chart-preview-only',
+      title: 'معاينة الرسم البياني',
+      unit: 'صفحة',
+      targetMin: 750,
+      targetMax: 1500,
+      dailyTargetMin: 25,
+      dailyTargetMax: 50,
+      startDate: start,
+      endDate: today,
+      colorIndex: 0,
+    );
+    for (var i = 0; i < amounts.length; i++) {
+      if (amounts[i] == 0) continue;
+      challenge.logs.add(
+        LogEntry(
+          date: start.add(Duration(days: i, hours: 12)),
+          amount: amounts[i],
+        ),
+      );
+    }
+    return challenge;
   }
 }
 

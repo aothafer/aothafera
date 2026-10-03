@@ -1,17 +1,32 @@
-# challenge_tracker
+# عُذافِرة
 
-A new Flutter project.
+تطبيق Android يساعدك على تحويل أهدافك إلى تحديات، تسجيل تقدمك، والالتزام بالتذكيرات اليومية.
 
-## Getting Started
+**[زيارة صفحة التطبيق وتحميل الإصدارات](https://aothafer.github.io/aothafera/)** · **[كل إصدارات APK على GitHub](https://github.com/aothafer/aothafera/releases)**
 
-This project is a starting point for a Flutter application.
+## المزايا
 
-A few resources to get you started if this is your first Flutter project:
+- إنشاء تحديات فردية ومجموعات بأهداف دنيا وعليا.
+- تسجيل التقدم اليومي ومتابعة المدة والإنجاز.
+- منبهات يومية مع إعادة حساب متوسط الإنجاز المطلوب حسب المتبقي من الهدف.
+- إحصائيات ورسوم بيانية لمتابعة التقدم.
+- تخزين محلي على الجهاز.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## تنزيل التطبيق
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+افتح [صفحة الإصدارات](https://github.com/aothafer/aothafera/releases)، واختر ملف APK من أحدث إصدار. يمكنك كذلك زيارة صفحة التطبيق للحصول على سجل التغييرات وتعليمات التثبيت.
+
+يتطلب تثبيت APK السماح بالتثبيت من المصدر الذي نُزّل منه الملف على جهاز Android.
+
+## التطوير
+
+المشروع مكتوب باستخدام Flutter وDart. للحصول على نسخة تطويرية:
+
+```bash
+flutter pub get
+flutter run
+```
+
+## الحالة
+
+المشروع قيد التطوير. راجع ملاحظات كل إصدار قبل تثبيته، وشارك المشكلات والاقتراحات عبر [Issues](https://github.com/aothafer/aothafera/issues).

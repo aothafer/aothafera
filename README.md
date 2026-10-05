@@ -2,7 +2,7 @@
 
 تطبيق Android يساعدك على تحويل أهدافك إلى تحديات، تسجيل تقدمك، والالتزام بالتذكيرات اليومية.
 
-**[زيارة صفحة التطبيق وتحميل الإصدارات](https://aothafer.github.io/aothafera/)** · **[كل إصدارات APK على GitHub](https://github.com/aothafer/aothafera/releases)**
+**[تنزيل أحدث إصدار APK](https://github.com/aothafer/aothafera/releases/latest)** · **[عرض كل الإصدارات](https://github.com/aothafer/aothafera/releases)**
 
 ## المزايا
 
@@ -14,9 +14,9 @@
 
 ## تنزيل التطبيق
 
-افتح [صفحة الإصدارات](https://github.com/aothafer/aothafera/releases)، واختر ملف APK من أحدث إصدار. يمكنك كذلك زيارة صفحة التطبيق للحصول على سجل التغييرات وتعليمات التثبيت.
+افتح [صفحة الإصدارات](https://github.com/aothafer/aothafera/releases) واختر ملف APK المرفق بأحدث إصدار. راجع ملاحظات الإصدار قبل التثبيت.
 
-يتطلب تثبيت APK السماح بالتثبيت من المصدر الذي نُزّل منه الملف على جهاز Android.
+لتثبيت APK، اسمح لجهاز Android بتثبيت التطبيقات من المصدر الذي نُزّل منه الملف.
 
 ## التطوير
 
@@ -29,4 +29,4 @@ flutter run
 
 ## الحالة
 
-المشروع قيد التطوير. راجع ملاحظات كل إصدار قبل تثبيته، وشارك المشكلات والاقتراحات عبر [Issues](https://github.com/aothafer/aothafera/issues).
+المشروع قيد التطوير. شارك المشكلات والاقتراحات عبر [Issues](https://github.com/aothafer/aothafera/issues).

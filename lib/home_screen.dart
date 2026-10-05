@@ -6,6 +6,8 @@ import 'challenge_detail_sheet.dart';
 import 'challenge_provider.dart';
 import 'completed_challenges_screen.dart';
 import 'models.dart';
+import 'schedule_models.dart';
+import 'schedule_screen.dart';
 import 'statistics_screen.dart';
 import 'theme.dart';
 
@@ -228,7 +230,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final challenges = context.watch<ChallengeProvider>().visibleChallenges;
+    final provider = context.watch<ChallengeProvider>();
+    final challenges = provider.visibleChallenges;
 
     return Scaffold(
       drawer: const _AppDrawer(),
@@ -243,7 +246,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
-          const _HeaderBanner(),
+          _HeaderBanner(schedules: provider.homeSchedules),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
             child: challenges.isEmpty
@@ -270,92 +273,188 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// الهيدر: اللوحة مع تلاشٍ ناعم في أولها وآخرها لتذوب في الخلفية
-class _HeaderBanner extends StatelessWidget {
-  const _HeaderBanner();
+/// The illustrated header and selected schedule cards share a swipeable carousel.
+class _HeaderBanner extends StatefulWidget {
+  final List<SchedulePlan> schedules;
+  const _HeaderBanner({required this.schedules});
+
+  @override
+  State<_HeaderBanner> createState() => _HeaderBannerState();
+}
+
+class _HeaderBannerState extends State<_HeaderBanner> {
+  late final PageController _controller;
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
+    final count = widget.schedules.length + 1;
     return SizedBox(
-      height: 280,
+      height: 290,
       child: Stack(
-        fit: StackFit.expand,
         children: [
-          Image.asset(
-            'assets/images/header.jpg',
-            fit: BoxFit.cover,
-            alignment: const Alignment(-0.2, 0),
+          PageView.builder(
+            controller: _controller,
+            itemCount: count,
+            onPageChanged: (value) => setState(() => _page = value),
+            itemBuilder: (context, index) => index == 0
+                ? const _PaintingBannerPage()
+                : _ScheduleBannerPage(schedule: widget.schedules[index - 1]),
           ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 100,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [AppColors.bg, AppColors.bg.withValues(alpha: 0)],
-                ),
+          if (count > 1)
+            Positioned(
+              bottom: 7,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var index = 0; index < count; index++)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      width: _page == index ? 17 : 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: _page == index ? AppColors.mustard : AppColors.muted.withValues(alpha: .65),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 140,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [AppColors.bg.withValues(alpha: 0), AppColors.bg],
-                ),
-              ),
-            ),
-          ),
-          // زر الرئيسية: يعيدك إلى شاشة الترحيب
           Positioned(
             top: MediaQuery.of(context).padding.top + 4,
             left: 8,
             child: IconButton(
               tooltip: 'الصفحة الرئيسية',
               icon: const Icon(Icons.home_outlined, color: AppColors.cream),
-              onPressed: () =>
-                  Navigator.of(context).popUntil((route) => route.isFirst),
+              onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
             ),
           ),
-          // زر القائمة الجانبية
           Positioned(
             top: MediaQuery.of(context).padding.top + 4,
             right: 8,
-            child: IconButton(
-              icon: const Icon(Icons.menu, color: AppColors.cream),
-              onPressed: () => Scaffold.of(context).openDrawer(),
-            ),
-          ),
-          Positioned(
-            right: 20,
-            bottom: 12,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('تحدياتي', style: textTheme.headlineMedium),
-                Text(
-                  'كل يوم خطوة',
-                  style: textTheme.bodyMedium?.copyWith(color: AppColors.muted),
-                ),
-              ],
+            child: Builder(
+              builder: (context) => IconButton(
+                tooltip: 'القائمة',
+                icon: const Icon(Icons.menu, color: AppColors.cream),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _PaintingBannerPage extends StatelessWidget {
+  const _PaintingBannerPage();
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      Image.asset('assets/images/header.jpg', fit: BoxFit.cover, alignment: const Alignment(-0.2, 0)),
+      Positioned(top: 0, left: 0, right: 0, height: 100, child: DecoratedBox(
+        decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [AppColors.bg, AppColors.bg.withValues(alpha: 0)])),
+      )),
+      Positioned(bottom: 0, left: 0, right: 0, height: 140, child: DecoratedBox(
+        decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [AppColors.bg.withValues(alpha: 0), AppColors.bg])),
+      )),
+      Positioned(right: 20, bottom: 18, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('تحدياتي', style: Theme.of(context).textTheme.headlineMedium),
+        Text('كل يوم خطوة', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.muted)),
+      ])),
+    ],
+  );
+}
+
+class _ScheduleBannerPage extends StatelessWidget {
+  final SchedulePlan schedule;
+  const _ScheduleBannerPage({required this.schedule});
+
+  String _time(int minute, BuildContext context) =>
+      TimeOfDay(hour: minute ~/ 60, minute: minute % 60).format(context);
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final date = schedule.containsDate(today) ? today : schedule.rangeStart;
+    final entries = schedule.onDate(date);
+    return Material(
+      color: AppColors.bg,
+      child: InkWell(
+        onTap: () => Navigator.push<void>(
+          context,
+          MaterialPageRoute(builder: (_) => ScheduleDetailScreen(scheduleId: schedule.id)),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset('assets/images/header.jpg', fit: BoxFit.cover, alignment: const Alignment(-0.2, 0)),
+            const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xCC221C19), Color(0xB3221C19), Color(0xF5221C19)]))),
+            Positioned(
+              right: 20,
+              left: 20,
+              top: MediaQuery.of(context).padding.top + 50,
+              bottom: 26,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  const Icon(Icons.calendar_month, color: AppColors.mustard),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(schedule.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge)),
+                  Text(schedule.period.label, style: const TextStyle(color: AppColors.tealLight, fontWeight: FontWeight.w700)),
+                ]),
+                const SizedBox(height: 6),
+                Text(_arabicBannerDate(date), style: const TextStyle(color: AppColors.muted)),
+                const SizedBox(height: 12),
+                if (entries.isEmpty)
+                  const Expanded(child: Center(child: Text('اليوم ده فاضي في جدولك\nاضغط عشان تشوف جدولك كامل', textAlign: TextAlign.center, style: TextStyle(color: AppColors.cream, height: 1.8))))
+                else ...[
+                  Text('${entries.length} ${entries.length == 1 ? 'موعد' : 'مواعيد'} اليوم', style: const TextStyle(color: AppColors.cream)),
+                  const SizedBox(height: 8),
+                  for (final entry in entries.take(2))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 5),
+                      child: Row(children: [
+                        const Icon(Icons.circle, size: 7, color: AppColors.terracotta),
+                        const SizedBox(width: 8),
+                        Text('${_time(entry.startMinute, context)}  ', style: const TextStyle(color: AppColors.mustard, fontWeight: FontWeight.w700)),
+                        Expanded(child: Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      ]),
+                    ),
+                  if (entries.length > 2)
+                    Text('+${entries.length - 2} مواعيد أخرى · اضغط لعرض اليوم كاملًا', style: const TextStyle(color: AppColors.tealLight)),
+                  const Spacer(),
+                  const Align(alignment: Alignment.centerLeft, child: Icon(Icons.open_in_full, size: 18, color: AppColors.mustard)),
+                ],
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _arabicBannerDate(DateTime date) {
+  const weekdays = ['الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
+  const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  return '${weekdays[date.weekday - 1]} ${date.day} ${months[date.month - 1]}';
 }
 
 class _ChallengeCard extends StatelessWidget {
@@ -629,6 +728,11 @@ class _AppDrawer extends StatelessWidget {
               child: Text('عُذافِرة', style: textTheme.headlineMedium),
             ),
             const Divider(),
+            item(
+              Icons.calendar_month_outlined,
+              'جداولي',
+              onTap: () => _openScreen(context, const ScheduleManagerScreen()),
+            ),
             item(
               Icons.bar_chart,
               'إحصائياتي',

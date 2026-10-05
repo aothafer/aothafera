@@ -7,11 +7,13 @@ import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
 import 'notification_service.dart';
+import 'schedule_models.dart';
 
 /// Keeps challenges locally on this device and notifies the UI about changes.
 class ChallengeProvider extends ChangeNotifier {
   final List<Challenge> _challenges = [];
   final List<Group> _groups = [];
+  final List<SchedulePlan> _schedules = [];
   Future<void> _writeQueue = Future<void>.value();
   Timer? _expirationTimer;
   int _nextColor = 0;
@@ -19,6 +21,9 @@ class ChallengeProvider extends ChangeNotifier {
 
   List<Challenge> get challenges => List.unmodifiable(_challenges);
   List<Group> get groups => List.unmodifiable(_groups);
+  List<SchedulePlan> get schedules => List.unmodifiable(_schedules);
+  List<SchedulePlan> get homeSchedules =>
+      _schedules.where((schedule) => schedule.showOnHome).toList();
   List<Challenge> get visibleChallenges =>
       _challenges.where((c) => c.status == ChallengeStatus.active).toList();
   List<Challenge> get completedChallenges =>
@@ -49,6 +54,13 @@ class ChallengeProvider extends ChangeNotifier {
             (item) => Group.fromJson(item as Map<String, dynamic>),
           ),
         );
+      _schedules
+        ..clear()
+        ..addAll(
+          (data['schedules'] as List<dynamic>? ?? []).map(
+            (item) => SchedulePlan.fromJson(item as Map<String, dynamic>),
+          ),
+        );
       _nextColor = _challenges.fold<int>(
         0,
         (max, c) => c.colorIndex >= max ? c.colorIndex + 1 : max,
@@ -71,6 +83,7 @@ class ChallengeProvider extends ChangeNotifier {
     final snapshot = jsonEncode({
       'challenges': _challenges.map((c) => c.toJson()).toList(),
       'groups': _groups.map((g) => g.toJson()).toList(),
+      'schedules': _schedules.map((schedule) => schedule.toJson()).toList(),
     });
     _writeQueue = _writeQueue.catchError((Object _) {}).then((_) async {
       final file = await _dataFile;
@@ -89,6 +102,26 @@ class ChallengeProvider extends ChangeNotifier {
 
   List<Challenge> challengesInGroup(String groupId) =>
       _challenges.where((c) => c.groupId == groupId).toList();
+
+  Future<void> addSchedule(SchedulePlan schedule) async {
+    _schedules.add(schedule);
+    notifyListeners();
+    await _persist();
+  }
+
+  Future<void> updateSchedule(SchedulePlan schedule) async {
+    final index = _schedules.indexWhere((item) => item.id == schedule.id);
+    if (index < 0) return;
+    _schedules[index] = schedule;
+    notifyListeners();
+    await _persist();
+  }
+
+  Future<void> removeSchedule(String scheduleId) async {
+    _schedules.removeWhere((schedule) => schedule.id == scheduleId);
+    notifyListeners();
+    await _persist();
+  }
 
   Group addGroup(String title) {
     final group = Group(

@@ -21,9 +21,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const _itemsPerPage = 3;
+  late final PageController _challengePageController;
+  int _challengePage = 0;
+  bool _pageClampQueued = false;
+
   @override
   void initState() {
     super.initState();
+    _challengePageController = PageController();
     final challengeId = widget.initialChallengeId;
     if (challengeId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -32,6 +38,12 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _challengePageController.dispose();
+    super.dispose();
   }
 
   Future<void> _logProgress(
@@ -231,7 +243,29 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ChallengeProvider>();
-    final challenges = provider.visibleChallenges;
+    final items = <_HomeDashboardItem>[];
+    for (final group in provider.groups) {
+      final members = provider.visibleChallenges
+          .where((challenge) => challenge.groupId == group.id)
+          .toList();
+      if (members.isNotEmpty) items.add(_HomeDashboardItem.group(group, members));
+    }
+    for (final challenge in provider.visibleChallenges.where((c) => c.groupId == null)) {
+      items.add(_HomeDashboardItem.challenge(challenge));
+    }
+    final pageCount = (items.length / _itemsPerPage).ceil();
+    if (pageCount > 0 && _challengePage >= pageCount && !_pageClampQueued) {
+      _pageClampQueued = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _pageClampQueued = false;
+        if (!mounted || pageCount == 0) return;
+        final lastPage = pageCount - 1;
+        if (_challengePage > lastPage) {
+          _challengePageController.jumpToPage(lastPage);
+          setState(() => _challengePage = lastPage);
+        }
+      });
+    }
 
     return Scaffold(
       drawer: const _AppDrawer(),
@@ -243,32 +277,237 @@ class _HomeScreenState extends State<HomeScreen> {
         icon: const Icon(Icons.add),
         label: const Text('تحدٍ جديد'),
       ),
-      body: ListView(
-        padding: EdgeInsets.zero,
+      body: Column(
         children: [
           _HeaderBanner(schedules: provider.homeSchedules),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-            child: challenges.isEmpty
+          Expanded(
+            child: items.isEmpty
                 ? const _EmptyState()
                 : Column(
                     children: [
-                      for (final c in challenges)
-                        _ChallengeCard(
-                          challenge: c,
-                          onLog: () => _logProgress(context, c.id),
-                          onFinish: () => context
-                              .read<ChallengeProvider>()
-                              .finishChallenge(c.id),
-                          onDelete: () => context
-                              .read<ChallengeProvider>()
-                              .removeChallenge(c.id),
+                      Expanded(
+                        child: PageView.builder(
+                          controller: _challengePageController,
+                          itemCount: pageCount,
+                          onPageChanged: (page) => setState(() => _challengePage = page),
+                          itemBuilder: (context, page) {
+                            final start = page * _itemsPerPage;
+                            final end = (start + _itemsPerPage).clamp(0, items.length).toInt();
+                            return ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+                              itemCount: end - start,
+                              itemBuilder: (context, offset) {
+                                final item = items[start + offset];
+                                if (item.group != null) {
+                                  return _GroupDashboardCard(
+                                    group: item.group!,
+                                    challenges: item.challenges,
+                                    onTap: () => Navigator.push<void>(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => ChallengeGroupScreen(
+                                          groupId: item.group!.id,
+                                          onLog: (id) => _logProgress(context, id),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                final challenge = item.challenge!;
+                                return _ChallengeCard(
+                                  key: ValueKey(challenge.id),
+                                  challenge: challenge,
+                                  onLog: () => _logProgress(context, challenge.id),
+                                  onFinish: () => context.read<ChallengeProvider>().finishChallenge(challenge.id),
+                                  onDelete: () => context.read<ChallengeProvider>().removeChallenge(challenge.id),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                      if (pageCount > 1)
+                        _ChallengePageControls(
+                          currentPage: _challengePage,
+                          pageCount: pageCount,
+                          onPrevious: () => _challengePageController.previousPage(
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeOut,
+                          ),
+                          onNext: () => _challengePageController.nextPage(
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeOut,
+                          ),
                         ),
                     ],
                   ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _HomeDashboardItem {
+  final Group? group;
+  final Challenge? challenge;
+  final List<Challenge> challenges;
+
+  const _HomeDashboardItem._({this.group, this.challenge, this.challenges = const []});
+
+  factory _HomeDashboardItem.group(Group group, List<Challenge> challenges) =>
+      _HomeDashboardItem._(group: group, challenges: challenges);
+
+  factory _HomeDashboardItem.challenge(Challenge challenge) =>
+      _HomeDashboardItem._(challenge: challenge);
+}
+
+class _ChallengePageControls extends StatelessWidget {
+  final int currentPage;
+  final int pageCount;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+
+  const _ChallengePageControls({
+    required this.currentPage,
+    required this.pageCount,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+    child: Row(
+      children: [
+        IconButton(
+          tooltip: 'الصفحة السابقة',
+          onPressed: currentPage == 0 ? null : onPrevious,
+          icon: const Icon(Icons.chevron_right),
+        ),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('صفحة ${currentPage + 1} من $pageCount', style: const TextStyle(color: AppColors.muted)),
+              const SizedBox(height: 5),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var page = 0; page < pageCount; page++)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      width: page == currentPage ? 16 : 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: page == currentPage ? AppColors.mustard : AppColors.track,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: 'الصفحة التالية',
+          onPressed: currentPage == pageCount - 1 ? null : onNext,
+          icon: const Icon(Icons.chevron_left),
+        ),
+      ],
+    ),
+  );
+}
+
+class _GroupDashboardCard extends StatelessWidget {
+  final Group group;
+  final List<Challenge> challenges;
+  final VoidCallback? onTap;
+
+  const _GroupDashboardCard({required this.group, required this.challenges, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final target = challenges.fold<int>(0, (sum, challenge) => sum + challenge.targetMax);
+    final done = challenges.fold<int>(0, (sum, challenge) => sum + challenge.totalDone);
+    final progress = target == 0 ? 0.0 : (done / target).clamp(0.0, 1.0).toDouble();
+    final percent = (progress * 100).round();
+    return Card(
+      color: AppColors.surface,
+      margin: const EdgeInsets.only(bottom: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const CircleAvatar(
+                  backgroundColor: AppColors.track,
+                  child: Icon(Icons.folder_copy_outlined, color: AppColors.mustard),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(group.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge),
+                  Text('${challenges.length} تحديات نشطة', style: const TextStyle(color: AppColors.muted)),
+                ])),
+                Text('$percent%', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppColors.mustard)),
+                if (onTap != null) const Icon(Icons.chevron_left, color: AppColors.muted),
+              ]),
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 8,
+                  backgroundColor: AppColors.track,
+                  valueColor: const AlwaysStoppedAnimation(AppColors.mustard),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('$done / $target إنجازًا ضمن المجموعة', style: const TextStyle(color: AppColors.muted)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ChallengeGroupScreen extends StatelessWidget {
+  final String groupId;
+  final Future<void> Function(String id) onLog;
+
+  const ChallengeGroupScreen({super.key, required this.groupId, required this.onLog});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<ChallengeProvider>();
+    final group = provider.groupById(groupId);
+    final challenges = provider.visibleChallenges.where((challenge) => challenge.groupId == groupId).toList();
+    return Scaffold(
+      appBar: AppBar(title: Text(group?.title ?? 'تحديات المجموعة')),
+      body: challenges.isEmpty
+          ? const Center(child: Text('لا توجد تحديات نشطة في هذه المجموعة.'))
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+              children: [
+                if (group != null)
+                  _GroupDashboardCard(group: group, challenges: challenges),
+                for (final challenge in challenges)
+                  _ChallengeCard(
+                    key: ValueKey(challenge.id),
+                    challenge: challenge,
+                    onLog: () => onLog(challenge.id),
+                    onFinish: () => provider.finishChallenge(challenge.id),
+                    onDelete: () => provider.removeChallenge(challenge.id),
+                  ),
+              ],
+            ),
     );
   }
 }
@@ -464,6 +703,7 @@ class _ChallengeCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   const _ChallengeCard({
+    super.key,
     required this.challenge,
     required this.onLog,
     required this.onFinish,
